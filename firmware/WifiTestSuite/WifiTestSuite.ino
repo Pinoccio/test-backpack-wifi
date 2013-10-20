@@ -80,6 +80,7 @@ void testJigLoop() {
 }
 
 void startTest() {
+  RgbLed.turnOff();
   if (testIsRunning == true) {
     Serial.println("Test is already running");
     return;
