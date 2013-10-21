@@ -1,7 +1,7 @@
-//#include <serialGLCDlib.h>
+#include <serialGLCDlib.h>
 #include <LeadScout.h>
 
-//serialGLCD lcd;
+serialGLCD lcd;
 #define TINY_13_CS 3
 #define GS_FLASH_CS 4
 #define DRIVER_FLASH_CS 5
@@ -273,13 +273,13 @@ void testSerialFlash() {
   for (uint32_t i=0; i<17000000; i+=1000000) {
     
     memset(dataFromChip, ' ', 16);
-    dataFromChip[16] = 0;
+    dataFromChip[15] = 0;
     
     // Write some data to RAM
-    Flash.write(i, dataToChip, 17);
+    Flash.write(i, dataToChip, 16);
   
     // Read it back to a different buffer
-    Flash.read(i, dataFromChip, 17);
+    Flash.read(i, dataFromChip, 16);
     
     // Write it to the serial port
     if (strcmp((const char*)dataToChip, (const char*)dataFromChip) != 0) {
