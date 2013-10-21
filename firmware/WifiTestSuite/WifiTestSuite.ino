@@ -49,7 +49,6 @@ void testJigSetup() {
   putWifiInRunMode();
   
   Serial.println("Wi-Fi Test Jig ready to go!");
-  Serial.println("");
 }
 
 void testJigLoop() {
@@ -86,6 +85,7 @@ void startTest() {
     return;
   }
   testIsRunning = true;
+  testFailed = false;
 
   configureWifi();
   testWifi();
@@ -270,14 +270,13 @@ void testSerialFlash() {
   char dataToChip[128] = "Testing123456789";
   char dataFromChip[128] = "                ";
   
-  for (uint32_t i=0; i<16777216; i+=1000000) {
+  for (uint32_t i=0; i<17000000; i+=1000000) {
     
     memset(dataFromChip, ' ', 16);
     dataFromChip[16] = 0;
     
     // Write some data to RAM
     Flash.write(i, dataToChip, 17);
-    //delay(100);
   
     // Read it back to a different buffer
     Flash.read(i, dataFromChip, 17);
@@ -294,7 +293,9 @@ void testSerialFlash() {
     Flash.sectorErase(i);
   }
   
-  Serial.println("--- Data written and read successfully across serial flash");
+  if (testFailed == false) {
+    Serial.println("--- Data written and read successfully across serial flash");
+  }
   return;
 }
 
