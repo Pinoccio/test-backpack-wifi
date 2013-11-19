@@ -31,6 +31,6 @@ ser.write("\xA5\x07\x00\x00\x00\x0A\x00\xEE\x04\x04\xE8\x01\x08\x00\x02\x00\x00\
 time.sleep(1)
 while ser.inWaiting() > 0:
   print "%#04x " % ord(ser.read(1))
-  
+
 print "MAC address is: " + mac[:-1]
 print "Done"

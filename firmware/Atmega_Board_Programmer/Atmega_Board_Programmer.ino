@@ -60,7 +60,7 @@ const byte MEGA_16U2_RESET = 7;
 const byte DRIVER_FLASH_CS = SS;
 
 const byte CLOCKOUT = SCK;
-const byte RESET = MEGA_16U2_RESET;  // --> goes to reset on the target board
+const byte RESET = MEGA_256RFR2_RESET;  // --> goes to reset on the target board
 
 // number of items in an array
 #define NUMITEMS(arg) ((unsigned int) (sizeof (arg) / sizeof (arg [0])))
@@ -409,7 +409,7 @@ void writeBootloader() {
 void startProgramming() {
   byte confirm;
   pinMode (RESET, OUTPUT);
-  pinMode (CLOCKOUT, OUTPUT);
+  //pinMode (CLOCKOUT, OUTPUT);
 
   // we are in sync if we get back programAcknowledge on the third byte
   do {
@@ -530,9 +530,9 @@ void setup ()
   SPI.begin ();
 
   // slow down SPI for benefit of slower processors like the Attiny
-  SPI.setClockDivider (SPI_CLOCK_DIV8);
+  SPI.setClockDivider (SPI_CLOCK_DIV64);
 
-  pinMode (CLOCKOUT, OUTPUT);
+  //pinMode (CLOCKOUT, OUTPUT);
 
   // set up Timer 1
   TCCR1A = _BV (COM1A0);  // toggle OC1A on Compare Match
@@ -552,7 +552,7 @@ void loop ()
   if (foundSig != -1)
     writeBootloader ();
 
-  //readProgram ();
+  readProgram ();
 
   // release reset
   digitalWrite (RESET, HIGH);

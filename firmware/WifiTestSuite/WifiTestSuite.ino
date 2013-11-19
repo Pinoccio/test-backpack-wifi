@@ -1,5 +1,9 @@
 #include <serialGLCDlib.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <PBBP.h>
 #include <LeadScout.h>
+#include "programmer.h"
 
 serialGLCD lcd;
 #define TINY_13_CS 3
@@ -7,7 +11,7 @@ serialGLCD lcd;
 #define DRIVER_FLASH_CS 5
 #define WIFI_PROGRAM_SELECT 6
 #define WIFI_CS 7
-#define MIDRO_SD_CS 8
+#define MICRO_SD_CS 8
 
 const int buttonPin = A3;
 bool testIsRunning = false;
@@ -18,6 +22,9 @@ char buffer[256];
 int ctr = 0;
 bool wifiResultReady = false;
 
+FlashClass Flash(SS, SPI);
+PBBP bp;
+  
 void setup() {
   Serial.begin(115200);
   //LeadScout.disableShell();
@@ -43,8 +50,8 @@ void testJigSetup() {
   digitalWrite(DRIVER_FLASH_CS, HIGH);
   pinMode(WIFI_CS, OUTPUT);
   digitalWrite(WIFI_CS, HIGH);
-  pinMode(MIDRO_SD_CS, OUTPUT);
-  digitalWrite(MIDRO_SD_CS, HIGH);
+  pinMode(MICRO_SD_CS, OUTPUT);
+  digitalWrite(MICRO_SD_CS, HIGH);
   
   putWifiInRunMode();
   
@@ -87,13 +94,13 @@ void startTest() {
   testIsRunning = true;
   testFailed = false;
 
-  configureWifi();
-  testWifi();
+  //configureWifi();
+  //testWifi();
   
-  testSerialFlash();
+  //testSerialFlash();
   
-  //flashBackpackBus();
-  //testBackpackBus();
+  flashBackpackBus();
+  testBackpackBus();
   
   testIsRunning = false;
   
@@ -160,6 +167,7 @@ void testWifi() {
       Gainspan.getGepsVersion() != "2.4.3" ||
       Gainspan.getWlanVersion() != "2.4.1") {
     Serial.println("Wi-Fi module requires a firmware upgrade");
+    flashWifi();
   } else {
     Serial.println("--- passed");
   }
@@ -302,13 +310,63 @@ void testSerialFlash() {
 void flashBackpackBus() {
   Serial.println("- Flash Backpack Bus -");
   digitalWrite(TINY_13_CS, LOW);
+  
+  digitalWrite(VCC_ENABLE, HIGH);
+  delay(500);
+  
+  AVRProgrammer pgm = AVRProgrammer(TINY_13_CS, SPI_CLOCK_DIV128);
+  pgm.startProgramming();
+  pgm.getSignature();
+  pgm.getFuseBytes();
+  
+  // if we found a signature, try to write flash
+  if (pgm.foundSignature() != -1) {
+    Serial.println("-- erasing chip");
+    pgm.eraseChip();
+    Serial.println("-- writing fuses");
+    pgm.writeFuseBytes(0x21, 0xFB, 0xFF);
+    Serial.println("-- writing flash");
+    pgm.writeProgram(0x0000, attiny13a_flash, sizeof(attiny13a_flash));
+  } else {
+    testFailed = true;
+  }
+
+  Serial.println("-- complete");
+  pgm.end();
   return;
 }
 
 void testBackpackBus() {
   Serial.println("- Test Backpack Bus -");
   
+  if (bp.enumerate()) {
+      Serial.print("Found ");
+      Serial.print(bp.num_slaves);
+      Serial.println(" slaves");
+
+      for (uint8_t i = 0; i < bp.num_slaves; ++ i) {
+          print_hex(bp.slave_ids[i], sizeof(bp.slave_ids[0]));
+          Serial.println();
+          uint8_t buf[64];
+          bp.readEeprom(i + 1, 0, buf, sizeof(buf));
+          Serial.print("EEPROM: ");
+          print_hex(buf, sizeof(buf));
+          Serial.println();
+      }
+  } else {
+      bp.printLastError(Serial);
+      Serial.println();
+  }
+  
   return;
+}
+
+// Example code to dump backpack EEPROM contents:
+void print_hex(const uint8_t *buf, uint8_t len) {
+    while (len--) {
+        if (*buf < 0x10) Serial.print("0");
+        Serial.print(*buf++, HEX);
+    }
 }
 
 void waitForResponse() {
