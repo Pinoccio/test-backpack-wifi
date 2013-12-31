@@ -2,7 +2,8 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <PBBP.h>
-#include <LeadScout.h>
+#include <Scout.h>
+#include <utility/WiFiBackpack.h>
 #include "programmer.h"
 
 serialGLCD lcd;
@@ -12,6 +13,7 @@ serialGLCD lcd;
 #define WIFI_PROGRAM_SELECT 6
 #define WIFI_CS 7
 #define MICRO_SD_CS 8
+#define FLASH_CS SS
 
 const int buttonPin = A3;
 bool testIsRunning = false;
@@ -22,7 +24,7 @@ char buffer[256];
 int ctr = 0;
 bool wifiResultReady = false;
 
-FlashClass Flash(SS, SPI);
+FlashClass DriverFlash(DRIVER_FLASH_CS, SPI);
 PBBP bp;
   
 void setup() {
@@ -42,6 +44,14 @@ void testJigSetup() {
   pinMode(buttonPin, INPUT);
  
   // disable all SPI chip selects 
+  resetSPIChipSelectPins();
+  
+  putWifiInRunMode();
+  
+  Serial.println("Wi-Fi Test Jig ready to go!");
+}
+
+void resetSPIChipSelectPins() {
   pinMode(GS_FLASH_CS, OUTPUT);
   digitalWrite(GS_FLASH_CS, HIGH);
   pinMode(TINY_13_CS, OUTPUT);
@@ -52,10 +62,6 @@ void testJigSetup() {
   digitalWrite(WIFI_CS, HIGH);
   pinMode(MICRO_SD_CS, OUTPUT);
   digitalWrite(MICRO_SD_CS, HIGH);
-  
-  putWifiInRunMode();
-  
-  Serial.println("Wi-Fi Test Jig ready to go!");
 }
 
 void testJigLoop() {
@@ -97,10 +103,10 @@ void startTest() {
   //configureWifi();
   //testWifi();
   
-  //testSerialFlash();
+  testSerialFlash();
   
-  flashBackpackBus();
-  testBackpackBus();
+//  flashBackpackBus();
+//  testBackpackBus();
   
   testIsRunning = false;
   
@@ -110,16 +116,19 @@ void startTest() {
     RgbLed.red();
   }
   Serial.println("Test complete");
+  testJigSetup();
 }
 
 void configureWifi() {
   Serial.println("- Configure Wi-Fi -");
+  resetSPIChipSelectPins();
   
-  if (!Gainspan.init(9600)) {
-    if (!Gainspan.init(115200)) {
+  if (!Gainspan.setup(9600)) {
+    if (!Gainspan.setup(115200)) {
       Serial.println("FAIL: Wi-Fi not responding");
       testFailed = true;
     } 
+    Gainspan.init();
   }
   Serial.println("--- passed");
   /*
@@ -162,6 +171,7 @@ void configureWifi() {
 
 void testWifi() {
   Serial.println("- Test Wi-Fi -");
+  resetSPIChipSelectPins();
   
   if (Gainspan.getAppVersion() != "2.4.3" ||
       Gainspan.getGepsVersion() != "2.4.3" ||
@@ -238,6 +248,8 @@ void testWifi() {
 }
 
 void flashWifi() {
+  resetSPIChipSelectPins();
+  
   putWifiInProgramMode();
   
   Serial.println("- Ready to start Wi-Fi upgrade. Close serial monitor and upgrade using gs_programmer");
@@ -263,54 +275,67 @@ void flashWifi() {
 
 void testSerialFlash() {
   Serial.println("- Test Serial Flash -");
+  resetSPIChipSelectPins();
+  digitalWrite(VCC_ENABLE, LOW);
+  delay(500);
+  digitalWrite(VCC_ENABLE, HIGH);
+  delay(500);
+  FlashClass Flash(FLASH_CS, SPI);
+  
+  const int addr = 0x10000;
   
   uint32_t start = millis();
   
+  bool flashFound = false;
   while (!Flash.available()) {
-    if (millis() - start > 30) {
+    if (millis() - start > 3000) {
       Serial.println("FAIL: Serial flash chip not found");
       testFailed = true;
       return;
     }
   }
+
   Serial.println("--- Serial flash chip found");
+ 
+  Serial.println("--- Erasing subsector");
+  Flash.subSectorErase(addr);
   
   char dataToChip[128] = "Testing123456789";
   char dataFromChip[128] = "                ";
   
-  for (uint32_t i=0; i<17000000; i+=1000000) {
-    
-    memset(dataFromChip, ' ', 16);
-    dataFromChip[15] = 0;
-    
-    // Write some data to RAM
-    Flash.write(i, dataToChip, 16);
-  
-    // Read it back to a different buffer
-    Flash.read(i, dataFromChip, 16);
-    
-    // Write it to the serial port
-    if (strcmp((const char*)dataToChip, (const char*)dataFromChip) != 0) {
-      Serial.print("FAIL: Data failed to write to and read from flash at address: ");
-      testFailed = true;
-      Serial.println(i);
-      Serial.println(dataToChip);
-      Serial.println(dataFromChip);
-    }
-    
-    Flash.sectorErase(i);
+  memset(dataFromChip, ' ', 16);
+  dataFromChip[15] = 0;
+
+  // Write some data to RAM
+  Flash.write(addr, dataToChip, 16);
+
+  // Read it back to a different buffer
+  Flash.read(addr, dataFromChip, 16);
+
+  // Write it to the serial port
+  if (strcmp((const char*)dataToChip, (const char*)dataFromChip) != 0) {
+    Serial.print("FAIL: Data failed to write to and read from flash at address: ");
+    testFailed = true;
+    Serial.println(addr, HEX);
+    Serial.println(dataToChip);
+    Serial.println(dataFromChip);
   }
-  
+ 
   if (testFailed == false) {
-    Serial.println("--- Data written and read successfully across serial flash");
+    Serial.println("--- Data written to and successfully read from serial flash");
   }
+
+  Serial.println("--- Erasing test data");
+  Flash.subSectorErase(addr);
+  Flash.end();
   return;
 }
 
 void flashBackpackBus() {
   Serial.println("- Flash Backpack Bus -");
-  digitalWrite(TINY_13_CS, LOW);
+  resetSPIChipSelectPins();
   
+  digitalWrite(TINY_13_CS, LOW);
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
   
@@ -338,6 +363,7 @@ void flashBackpackBus() {
 
 void testBackpackBus() {
   Serial.println("- Test Backpack Bus -");
+  resetSPIChipSelectPins();
   
   if (bp.enumerate()) {
       Serial.print("Found ");
