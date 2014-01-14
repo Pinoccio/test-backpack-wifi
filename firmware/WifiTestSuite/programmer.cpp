@@ -25,31 +25,31 @@
 
 /*
 
-Copyright 2012 Nick Gammon.
-
-
-PERMISSION TO DISTRIBUTE
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software
-and associated documentation files (the "Software"), to deal in the Software without restriction,
-including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
-and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-
-LIMITATION OF LIABILITY
-
-The software is provided "as is", without warranty of any kind, express or implied,
-including but not limited to the warranties of merchantability, fitness for a particular
-purpose and noninfringement. In no event shall the authors or copyright holders be liable
-for any claim, damages or other liability, whether in an action of contract,
-tort or otherwise, arising from, out of or in connection with the software
-or the use or other dealings in the software.
-
-*/
+ Copyright 2012 Nick Gammon.
+ 
+ 
+ PERMISSION TO DISTRIBUTE
+ 
+ Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+ and associated documentation files (the "Software"), to deal in the Software without restriction,
+ including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+ subject to the following conditions:
+ 
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ 
+ 
+ LIMITATION OF LIABILITY
+ 
+ The software is provided "as is", without warranty of any kind, express or implied,
+ including but not limited to the warranties of merchantability, fitness for a particular
+ purpose and noninfringement. In no event shall the authors or copyright holders be liable
+ for any claim, damages or other liability, whether in an action of contract,
+ tort or otherwise, arising from, out of or in connection with the software
+ or the use or other dealings in the software.
+ 
+ */
 
 #include <SPI.h>
 #include <avr/pgmspace.h>
@@ -64,50 +64,72 @@ or the use or other dealings in the software.
 
 // see Atmega datasheet for values
 signatureType signatures[] =
-{// ATtiny13 family
-    { { 0x1E, 0x90, 0x07 }, "ATtiny13A",    1 * kb,   0,
+{
+  //     signature          description   flash size  bootloader size
+  // ATtiny13 family
+  { 
+    { 
+      0x1E, 0x90, 0x07     }
+    , "ATtiny13A",    1 * kb,   0,
     (byte*)attiny13a_flash,// loader image
     0x0000,      // start address
     sizeof attiny13a_flash,
     32,          // page size (for committing)
-    0x21,         // fuse low byte:
+    0x2A,         // fuse low byte:
     0xFB,         // fuse high byte:
     0xFF,         // fuse extended byte:
-    0x2F },       // lock bits: SPM is not allowed to write to the Boot Loader section.
+    0x2F   }
+  ,       // lock bits: SPM is not allowed to write to the Boot Loader section.
 
 };
 
 // if signature found in above table, this is its index
-AVRProgrammer::AVRProgrammer(int reset, int clockDivider) {
+AVRProgrammer::AVRProgrammer(int CS, SPIClass &SPIDriver, int clockDivider) : 
+chipSelectPin(CS), SPI(SPIDriver), spiSpeed(clockDivider) {
   foundSig = -1;
-  resetPin = reset;
   lastAddressMSB = 0;
- 
-  digitalWrite(resetPin, HIGH);
-  SPI.begin();
-  SPI.setClockDivider(clockDivider);
+
+  pinMode(SCK, OUTPUT);
+  pinMode(MOSI, OUTPUT);
+  pinMode(MISO, INPUT);
+
+  begin();
+  this->SPI.setClockDivider(spiSpeed);
+}
+
+void AVRProgrammer::begin() {
+  pinMode(chipSelectPin, OUTPUT);
+  digitalWrite(chipSelectPin, LOW);
+  this->SPI.begin(); 
+}
+
+
+void AVRProgrammer::end() {
+  this->SPI.end();
+  digitalWrite(chipSelectPin, HIGH);
 }
 
 void AVRProgrammer::startProgramming() {
   byte confirm;
-  pinMode(resetPin, OUTPUT);
+  pinMode(chipSelectPin, OUTPUT);
 
   // we are in sync if we get back programAcknowledge on the third byte
   do {
     // ensure SCK low
     digitalWrite(SCK, LOW);
     // then pulse reset, see page 309 of datasheet
-    digitalWrite(resetPin, HIGH);
+    digitalWrite(chipSelectPin, HIGH);
     delay(1);  // pulse for at least 2 clock cycles
-    digitalWrite(resetPin, LOW);
+    digitalWrite(chipSelectPin, LOW);
     delay(25);  // wait at least 20 mS
     SPI.transfer(programEnable);
     SPI.transfer(programAcknowledge);
     confirm = SPI.transfer(0);
     SPI.transfer(0);
-  } while (confirm != programAcknowledge);
+  } 
+  while (confirm != programAcknowledge);
   PD(Serial1.println("Entered programming mode OK"));
-  
+
   // we must set extended address byte to 0 to start, otherwise our writes start at 128k, not 0
   program(loadExtendedAddressByte, 0, lastAddressMSB);
 }
@@ -121,7 +143,7 @@ void AVRProgrammer::getSignature() {
   for (byte i = 0; i < 3; i++) {
     sig[i] = program(readSignatureByte, 0, i);
     PD(showHex(sig[i]));
-  } 
+  }
   PD(Serial1.println());
 
   for (int j = 0; j < NUMITEMS(signatures); j++) {
@@ -159,7 +181,7 @@ void AVRProgrammer::getFuseBytes() {
 }
 
 void AVRProgrammer::writeFuseBytes(const byte lowFuse, const byte highFuse, const byte extendedFuse, const byte lockFuse) {
-  PD(Serial1.println("Writing fuses ..."));
+  PD(Serial1.println("Writing fuses..."));
 
   writeFuse(lowFuse, writeLowFuseByte);
   if (program(readLowFuseByte, readLowFuseByteArg2) != lowFuse) {
@@ -168,10 +190,13 @@ void AVRProgrammer::writeFuseBytes(const byte lowFuse, const byte highFuse, cons
     PD(Serial1.print("Got "));
     PD(showHex(program(readLowFuseByte, readLowFuseByteArg2)));
     PD(Serial1.println());
-  } else {
-    PD(Serial1.println("Successfully wrote low fuse"));
+  } 
+  else {
+    PD(Serial1.print("Successfully wrote low fuse: "));
+    PD(showHex(program(readLowFuseByte, readLowFuseByteArg2)));
+    PD(Serial1.println());
   }
-  
+
   writeFuse(highFuse, writeHighFuseByte);
   if (program(readHighFuseByte, readHighFuseByteArg2) != highFuse) {
     PD(Serial1.print("High fuse failed to write. Expected "));
@@ -179,10 +204,13 @@ void AVRProgrammer::writeFuseBytes(const byte lowFuse, const byte highFuse, cons
     PD(Serial1.print("Got "));
     PD(showHex(program(readHighFuseByte, readHighFuseByteArg2)));
     PD(Serial1.println());
-  } else {
-    PD(Serial1.println("Successfully wrote high fuse"));
+  } 
+  else {
+    PD(Serial1.print("Successfully wrote high fuse: "));
+    PD(showHex(program(readHighFuseByte, readHighFuseByteArg2)));
+    PD(Serial1.println());
   }
-  
+
   writeFuse(extendedFuse, writeExtendedFuseByte);
   if (program(readExtendedFuseByte, readExtendedFuseByteArg2) != extendedFuse) {
     PD(Serial1.print("Extended fuse failed to write. Expected "));
@@ -190,19 +218,25 @@ void AVRProgrammer::writeFuseBytes(const byte lowFuse, const byte highFuse, cons
     PD(Serial1.print("Got "));
     PD(showHex(program(readExtendedFuseByte, readExtendedFuseByteArg2)));
     PD(Serial1.println());
-  } else {
-    PD(Serial1.println("Successfully wrote extended fuse"));
+  } 
+  else {
+    PD(Serial1.print("Successfully wrote extended fuse: "));
+    PD(showHex(program(readExtendedFuseByte, readExtendedFuseByteArg2)));
+    PD(Serial1.println());
   }
-  
+
   writeFuse(lockFuse, writeLockByte);
   if (program(readLockByte, readLockByteArg2) != lockFuse) {
     PD(Serial1.print("Lock fuse failed to write. Expected "));
     PD(showHex(lockFuse, false, true));
     PD(Serial1.print("Got "));
-    PD(showHex(program(lockFuse, readLockByteArg2)));
+    PD(showHex(program(readLockByte, readLockByteArg2)));
     PD(Serial1.println());
-  } else {
-    PD(Serial1.println("Successfully wrote lock fuse"));
+  } 
+  else {
+    PD(Serial1.print("Successfully wrote lock fuse: "));
+    PD(showHex(program(readLockByte, readLockByteArg2)));
+    PD(Serial1.println());
   }
 
   // confirm them
@@ -210,11 +244,13 @@ void AVRProgrammer::writeFuseBytes(const byte lowFuse, const byte highFuse, cons
 }
 
 // burn the bootloader to the target device
-void AVRProgrammer::writeProgram(unsigned long loaderStart, const byte *image, const int length) {
+bool AVRProgrammer::writeProgram(unsigned long loaderStart, const byte *image, const int length) {
 
+  bool ret = false;
+  
   if (image == 0) {
     PD(Serial1.println("No bootloader support for this device."));
-    return;
+    return 1;
   }
 
   int i;
@@ -245,7 +281,7 @@ void AVRProgrammer::writeProgram(unsigned long loaderStart, const byte *image, c
   unsigned long oldPage = addr & pagemask;
 
   PD(Serial1.println("Writing program..."));
-    
+
   for (i = 0; i < len; i += 2) {
     unsigned long thisPage = (addr + i) & pagemask;
     // page changed? commit old one
@@ -264,7 +300,7 @@ void AVRProgrammer::writeProgram(unsigned long loaderStart, const byte *image, c
 
   // count errors
   unsigned int errors = 0;
-  
+
   // check each byte
   for (i = 0; i < len; i++) {
     byte found = readFlash(addr + i);
@@ -285,6 +321,7 @@ void AVRProgrammer::writeProgram(unsigned long loaderStart, const byte *image, c
   if (errors == 0) {
     PD(Serial1.println("No errors found."));
   } else {
+    ret = true;
     PD(Serial1.print(errors, DEC));
     PD(Serial1.println(" verification error(s)."));
     if (errors > 100) {
@@ -292,26 +329,29 @@ void AVRProgrammer::writeProgram(unsigned long loaderStart, const byte *image, c
     }
     //return;  // don't change fuses if errors
   }
-  PD(Serial1.print("Done."));
+  PD(Serial1.println("Done."));
+  return ret;
 }
 
-void AVRProgrammer::writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass *flash, const uint32_t flashAddress, const uint32_t length) {
-  
+bool AVRProgrammer::writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass *flash, const uint32_t flashAddress, const uint32_t length) {
+
+  bool ret = false;
+    
   uint32_t i;
   uint32_t addr = loaderStart;
   uint32_t  len = length;
   uint32_t pagesize = signatures[foundSig].pageSize;
   uint32_t pagemask = ~(pagesize - 1);
-  
+
   uint32_t timesThrough = 0;
   uint16_t bufCtr = 0;
   uint16_t verifyCtr = 0;
   uint16_t bufLen = 16384;
   byte flashBuffer[bufLen];
-  
+
   // count errors
   unsigned int errors = 0;
-  
+
   PD(Serial1.print("Bootloader page size = "));
   PD(Serial1.println(pagesize));
   PD(Serial1.print("Bootloader address = 0x"));
@@ -325,28 +365,29 @@ void AVRProgrammer::writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass
   unsigned long oldPage = addr & pagemask;
 
   PD(Serial1.println("Writing program..."));
-  
+
   // load each word
-  for (i=0; i<len; i+=2, bufCtr+=2) { 
-    
+  for (i=0; i<len; i+=2, bufCtr+=2) {
+
     unsigned long thisPage = (addr + i) & pagemask;
     // page changed? commit old one
     if (thisPage != oldPage) {
       commitPage(oldPage);
       oldPage = thisPage;
     }
-    
+
     if (i % bufLen == 0) {
       // read new chunk of bytes into buffer
       bufCtr = 0;
       flash->read(flashAddress + i, &flashBuffer, bufLen);
       startProgramming();
-      
+
       timesThrough++;
       PD(Serial1.print("Writing "));
       if ((timesThrough * bufLen) > len) {
         PD(Serial1.print(len));
-      } else {
+      } 
+      else {
         PD(Serial1.print(timesThrough * bufLen));
       }
       PD(Serial1.print(" bytes of a total of "));
@@ -361,7 +402,7 @@ void AVRProgrammer::writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass
   commitPage(oldPage);
 
   PD(Serial1.println("Written."));
- 
+
   // check each byte
   for (i=0; i<len; i++, bufCtr++) {
     if (i % bufLen == 0) {
@@ -389,14 +430,18 @@ void AVRProgrammer::writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass
 
   if (errors == 0) {
     PD(Serial1.println("No errors found."));
-  } else {
+  } 
+  else {
+    ret = true;
     PD(Serial1.print(errors, DEC));
     PD(Serial1.println(" verification error(s)."));
     if (errors > 100) {
       PD(Serial1.print("First 100 shown."));
     }
   }
+  flash->end();
   PD(Serial1.print("Done."));
+  return ret;
 }
 
 void AVRProgrammer::readProgram(uint32_t address, uint32_t length) {
@@ -421,15 +466,22 @@ void AVRProgrammer::readProgram(uint32_t address, uint32_t length) {
   PD(Serial1.println());
 }
 
-void AVRProgrammer::eraseChip() {
-  PD(Serial1.println("Erasing chip..."));
-  program(programEnable, chipErase);   
-  //delay(20);  // for Atmega8
+uint8_t AVRProgrammer::readEeprom(unsigned long addr) {
+  PD(Serial1.println("Reading EEPROM..."));
+  return program(readEepromMemory, highByte(addr), lowByte(addr));
+}
+
+void AVRProgrammer::writeEeprom(unsigned long addr, byte value) {
+  PD(Serial1.println("Writing EEPROM..."));
+  program(writeEepromMemory, highByte(addr), lowByte(addr), value);
   pollUntilReady();
 }
 
-void AVRProgrammer::end() {
-  digitalWrite(resetPin, HIGH);
+void AVRProgrammer::eraseChip() {
+  PD(Serial1.println("Erasing chip..."));
+  program(programEnable, chipErase);
+  //delay(20);  // for Atmega8
+  pollUntilReady();
 }
 
 bool AVRProgrammer::foundSignature() {
@@ -439,10 +491,12 @@ bool AVRProgrammer::foundSignature() {
 // execute one programming instruction ... b1 is command, b2, b3, b4 are arguments
 //  processor may return a result on the 4th transfer, this is returned.
 byte AVRProgrammer::program(const byte b1, const byte b2, const byte b3, const byte b4) {
-  SPI.transfer(b1);
-  SPI.transfer(b2);
-  SPI.transfer(b3);
-  return SPI.transfer(b4);
+  byte ret;
+  this->SPI.transfer(b1);
+  this->SPI.transfer(b2);
+  this->SPI.transfer(b3);
+  ret = this->SPI.transfer(b4);
+  return ret;
 }
 
 // read a byte from flash memory
@@ -464,17 +518,17 @@ byte AVRProgrammer::readFlash(unsigned long addr) {
 byte AVRProgrammer::writeFlash(unsigned long addr, const byte data) {
   byte high = (addr & 1) ? 0x08 : 0;  // set if high byte wanted
   addr >>= 1;  // turn into word address
-//  Serial1.println("writeFlash: ");
-//  Serial1.print("high byte: ");
-//  Serial1.println(high);
-//  Serial1.print("low byte: ");
-//  Serial1.println(lowByte(addr));
-//  Serial1.print("sending the following command: 0x");
-//  Serial1.print(loadProgramMemory | high, HEX);
-//  Serial1.print(", 0, 0x");
-//  Serial1.print(lowByte(addr), HEX);
-//  Serial1.print(", 0x");
-//  Serial1.println(data, HEX);
+  //  Serial1.println("writeFlash: ");
+  //  Serial1.print("high byte: ");
+  //  Serial1.println(high);
+  //  Serial1.print("low byte: ");
+  //  Serial1.println(lowByte(addr));
+  //  Serial1.print("sending the following command: 0x");
+  //  Serial1.print(loadProgramMemory | high, HEX);
+  //  Serial1.print(", 0, 0x");
+  //  Serial1.print(lowByte(addr), HEX);
+  //  Serial1.print(", 0x");
+  //  Serial1.println(data, HEX);
   program(loadProgramMemory | high, 0, lowByte (addr), data);
 }
 
@@ -482,7 +536,8 @@ byte AVRProgrammer::writeFlash(unsigned long addr, const byte data) {
 void AVRProgrammer::showYesNo(const boolean b, const boolean newline) {
   if (b) {
     PD(Serial1.print("Yes"));
-  } else {
+  } 
+  else {
     PD(Serial1.print("No"));
   }
   if (newline) {
@@ -494,8 +549,10 @@ void AVRProgrammer::showYesNo(const boolean b, const boolean newline) {
 void AVRProgrammer::pollUntilReady() {
   if (signatures[foundSig].timedWrites) {
     delay (10);  // at least 2 x WD_FLASH which is 4.5 mS
-  } else {
-    while ((program(pollReady) & 1) == 1) {}  // wait till ready
+  } 
+  else {
+    while ((program(pollReady) & 1) == 1) {
+    }  // wait till ready
   }
 }
 
@@ -512,14 +569,14 @@ void AVRProgrammer::commitPage(unsigned long addr) {
     program (loadExtendedAddressByte, 0, MSB);
     lastAddressMSB = MSB;
   }
-  
-//  Serial1.println("commitPage: ");
-//  Serial1.print("sending the following command: 0x");
-//  Serial1.print(writeProgramMemory, HEX);
-//  Serial1.print(", 0, 0x");
-//  Serial1.print(highByte(addr), HEX);
-//  Serial1.print(", 0x");
-//  Serial1.println(lowByte(addr), HEX);
+
+  //  Serial1.println("commitPage: ");
+  //  Serial1.print("sending the following command: 0x");
+  //  Serial1.print(writeProgramMemory, HEX);
+  //  Serial1.print(", 0, 0x");
+  //  Serial1.print(highByte(addr), HEX);
+  //  Serial1.print(", 0x");
+  //  Serial1.println(lowByte(addr), HEX);
 
   program(writeProgramMemory, highByte(addr), lowByte(addr));
   pollUntilReady();
@@ -541,7 +598,8 @@ void AVRProgrammer::showHex(const byte b, const boolean newline, const boolean s
     PD(Serial1.print("0x"));
   }
   // try to avoid using sprintf
-  char buf[4] = { ((b >> 4) & 0x0F) | '0', (b & 0x0F) | '0', ' ' , 0 };
+  char buf[4] = { 
+    ((b >> 4) & 0x0F) | '0', (b & 0x0F) | '0', ' ' , 0     };
   if (buf[0] > '9') {
     buf[0] += 7;
   }
@@ -553,4 +611,5 @@ void AVRProgrammer::showHex(const byte b, const boolean newline, const boolean s
     PD(Serial1.println());
   }
 }
+
 

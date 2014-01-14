@@ -7,13 +7,13 @@
 #include "programmer.h"
 
 serialGLCD lcd;
-#define TINY_13_CS 3
+#define TINY_13_RESET 3
 #define GS_FLASH_CS 4
 #define DRIVER_FLASH_CS 5
 #define WIFI_PROGRAM_SELECT 6
 #define WIFI_CS 7
 #define MICRO_SD_CS 8
-#define FLASH_CS SS
+#define BP_FLASH_CS SS
 
 const int buttonPin = A3;
 bool testIsRunning = false;
@@ -25,6 +25,12 @@ int ctr = 0;
 bool wifiResultReady = false;
 
 FlashClass DriverFlash(DRIVER_FLASH_CS, SPI);
+
+uint32_t S2W_APP1_IMG_ADDR = 0x10000;
+uint32_t S2W_APP2_IMG_ADDR = 0x50000;
+uint32_t WFW_REL_IMG_ADDR = 0xA0000;
+uint32_t WIFI_EXTERNAL_FLASH_IMG_ADDR = 0x100000;
+
 PBBP bp;
   
 void setup() {
@@ -40,12 +46,9 @@ void loop() {
 }
 
 void testJigSetup() {
-  digitalWrite(buttonPin, HIGH);
-  pinMode(buttonPin, INPUT);
+  pinMode(buttonPin, INPUT_PULLUP);
  
-  // disable all SPI chip selects 
-  resetSPIChipSelectPins();
-  
+  resetSPIChipSelectPins(); 
   putWifiInRunMode();
   
   Serial.println("Wi-Fi Test Jig ready to go!");
@@ -54,14 +57,16 @@ void testJigSetup() {
 void resetSPIChipSelectPins() {
   pinMode(GS_FLASH_CS, OUTPUT);
   digitalWrite(GS_FLASH_CS, HIGH);
-  pinMode(TINY_13_CS, OUTPUT);
-  digitalWrite(TINY_13_CS, HIGH);
+  pinMode(TINY_13_RESET, OUTPUT);
+  digitalWrite(TINY_13_RESET, HIGH);
   pinMode(DRIVER_FLASH_CS, OUTPUT);
   digitalWrite(DRIVER_FLASH_CS, HIGH);
   pinMode(WIFI_CS, OUTPUT);
   digitalWrite(WIFI_CS, HIGH);
   pinMode(MICRO_SD_CS, OUTPUT);
   digitalWrite(MICRO_SD_CS, HIGH);
+  pinMode(BP_FLASH_CS, OUTPUT);
+  digitalWrite(BP_FLASH_CS, HIGH);
 }
 
 void testJigLoop() {
@@ -81,7 +86,6 @@ void testJigLoop() {
     */
   } else {
     RgbLed.blinkGreen();
-    delay(800);
     startTest();
   }
  
@@ -100,10 +104,17 @@ void startTest() {
   testIsRunning = true;
   testFailed = false;
 
+  // getWifiMACAddress();
+  writeWifiFlash();
+  // updateWifiFirmwareWFW();
+  // updateWifiFirmwareApp1();
+  // updateWifiFirmwareApp2();
+  // writeWifiMACAddress();
+  
   //configureWifi();
   //testWifi();
   
-  testSerialFlash();
+//  testSerialFlash();
   
 //  flashBackpackBus();
 //  testBackpackBus();
@@ -117,6 +128,63 @@ void startTest() {
   }
   Serial.println("Test complete");
   testJigSetup();
+}
+
+void writeWifiFlash() {
+  putWifiInProgramMode();
+  byte buffer[256] = {0};
+                    
+  FlashClass GSFlash(GS_FLASH_CS, SPI);
+  
+  uint32_t start = millis();
+  while (!GSFlash.available()) {
+    if (millis() - start > 1000) {
+      Serial.println("FAIL: Serial flash chip not found");
+      return;
+    }
+  }
+  Serial.println("--- Serial flash chip found");
+  
+  GSFlash.bulkErase();
+  
+  for (uint32_t i = 0; i<0x100000; i+=256) {
+    DriverFlash.begin(DRIVER_FLASH_CS, SPI);
+    GSFlash.read(0xF0000, (byte *)buffer, 0x54);
+    
+  }
+  
+  if (strncmp((const char*)buffer, header1, 0x100) != 0) {
+    Serial.println("FAIL: Header1 failed to write correctly");
+    printHex((const uint8_t *)header1, 0x114);
+    Serial.println();
+    printHex((const uint8_t *)buffer, 0x114);
+    Serial.println();
+    if (strncmp((const char*)buffer, header2, 0x14) != 0) {
+      Serial.println("FAIL: Header1 failed to write correctly");
+      printHex((const uint8_t *)header2, 0x14);
+      Serial.println();
+      printHex((const uint8_t *)(buffer+0x100), 0x14);
+      Serial.println();
+    }
+  } else {
+    Serial.println("Success");
+  }
+  memset(buffer, 0, 0x114);
+  
+  Serial.print("- Writing footer: ");
+  GSFlash.sectorErase(0xF0000);
+  GSFlash.write(0xF0000, (byte *)footer, 0x54); 
+  GSFlash.read(0xF0000, (byte *)buffer, 0x54);
+  if (strncmp((const char*)buffer, footer, 0x54) != 0) {
+    Serial.println("FAIL: Footer failed to write correctly");
+    printHex((const uint8_t *)footer, 0x54);
+    Serial.println();
+    printHex((const uint8_t *)buffer, 0x54);
+    Serial.println();
+  } else {
+    Serial.println("Success");
+  }
+  memset(buffer, 0, 0x54);
 }
 
 void configureWifi() {
@@ -173,9 +241,9 @@ void testWifi() {
   Serial.println("- Test Wi-Fi -");
   resetSPIChipSelectPins();
   
-  if (Gainspan.getAppVersion() != "2.4.3" ||
-      Gainspan.getGepsVersion() != "2.4.3" ||
-      Gainspan.getWlanVersion() != "2.4.1") {
+  if (Gainspan.getAppVersion() != "2.5.1" ||
+      Gainspan.getGepsVersion() != "2.5.1" ||
+      Gainspan.getWlanVersion() != "2.5.1") {
     Serial.println("Wi-Fi module requires a firmware upgrade");
     flashWifi();
   } else {
@@ -280,7 +348,7 @@ void testSerialFlash() {
   delay(500);
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
-  FlashClass Flash(FLASH_CS, SPI);
+  FlashClass Flash(BP_FLASH_CS, SPI);
   
   const int addr = 0x10000;
   
@@ -335,11 +403,11 @@ void flashBackpackBus() {
   Serial.println("- Flash Backpack Bus -");
   resetSPIChipSelectPins();
   
-  digitalWrite(TINY_13_CS, LOW);
+  digitalWrite(TINY_13_RESET, LOW);
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
   
-  AVRProgrammer pgm = AVRProgrammer(TINY_13_CS, SPI_CLOCK_DIV128);
+  AVRProgrammer pgm = AVRProgrammer(TINY_13_RESET, SPI, SPI_CLOCK_DIV128);
   pgm.startProgramming();
   pgm.getSignature();
   pgm.getFuseBytes();
@@ -371,12 +439,12 @@ void testBackpackBus() {
       Serial.println(" slaves");
 
       for (uint8_t i = 0; i < bp.num_slaves; ++ i) {
-          print_hex(bp.slave_ids[i], sizeof(bp.slave_ids[0]));
+          printHex(bp.slave_ids[i], sizeof(bp.slave_ids[0]));
           Serial.println();
           uint8_t buf[64];
           bp.readEeprom(i + 1, 0, buf, sizeof(buf));
           Serial.print("EEPROM: ");
-          print_hex(buf, sizeof(buf));
+          printHex(buf, sizeof(buf));
           Serial.println();
       }
   } else {
@@ -388,7 +456,7 @@ void testBackpackBus() {
 }
 
 // Example code to dump backpack EEPROM contents:
-void print_hex(const uint8_t *buf, uint8_t len) {
+void printHex(const uint8_t *buf, uint8_t len) {
     while (len--) {
         if (*buf < 0x10) Serial.print("0");
         Serial.print(*buf++, HEX);
@@ -415,23 +483,23 @@ void waitForResponse() {
 void putWifiInProgramMode() {
   pinMode(VCC_ENABLE, OUTPUT);
   digitalWrite(VCC_ENABLE, LOW);
-  delay(1000);
+  delay(500);
   
   pinMode(WIFI_PROGRAM_SELECT, OUTPUT);
   digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
  
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(1000); 
+  delay(500); 
 }
 
 void putWifiInRunMode() {
   pinMode(VCC_ENABLE, OUTPUT);
   digitalWrite(VCC_ENABLE, LOW);
-  delay(1000);
+  delay(500);
   
   pinMode(WIFI_PROGRAM_SELECT, OUTPUT);
   digitalWrite(WIFI_PROGRAM_SELECT, LOW);
  
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(1000);
+  delay(50);
 }
