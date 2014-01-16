@@ -56,8 +56,6 @@
 #include "utility/Flash.h"
 
 // hex bootloader data
-//#include "bootloader_atmega16u2.h"
-//#include "bootloader_atmega256rfr2.h"
 #include "flash_attiny13a.h"
 
 
@@ -121,7 +119,7 @@ public:
   void startProgramming();
   void getSignature();
   void getFuseBytes();
-  void writeFuseBytes(const byte lowFuse, const byte highFuse, const byte extendedFuse, const byte lockFuse=0xFF);
+  bool writeFuseBytes(const byte lowFuse, const byte highFuse, const byte extendedFuse, const byte lockFuse=0xFF);
   bool writeProgram(unsigned long loaderStart, const byte *image, const int length);
   bool writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass *flash, const uint32_t flashAddress, const uint32_t length);
   void readProgram(uint32_t address, uint32_t length);
