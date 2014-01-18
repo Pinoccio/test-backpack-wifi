@@ -2,6 +2,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <PBBP.h>
+#include <crc.h>
 #include <Scout.h>
 #include <utility/WiFiBackpack.h>
 #include "programmer.h"
@@ -29,12 +30,15 @@ uint32_t S2W_APP2_IMG_ADDR = 0x50000;
 uint32_t WFW_REL_IMG_ADDR = 0xA0000;
 uint32_t WIFI_EXTERNAL_FLASH_IMG_ADDR = 0x100000;
 
-uint32_t bpUniqueId = 0x4F;
+uint32_t bpUniqueId = 0x50;
 
 PBBP bp;
   
 void setup() {
   Serial.begin(115200);
+  pinMode(VCC_ENABLE, OUTPUT);
+  digitalWrite(VCC_ENABLE, HIGH);
+  
   testJigSetup();
 }
 
@@ -379,10 +383,10 @@ void flashBackpackBus() {
   // if we found a signature, try to write flash
   if (pgm.foundSignature() != -1) {
     
-    Serial.println("-- erasing chip");
+    Serial.println("-- Erasing chip");
     pgm.eraseChip();
     
-    Serial.println("-- writing fuses");
+    Serial.println("-- Writing fuses");
     if (!pgm.writeFuseBytes(0x21, 0xFB, 0xFF)) {
       testFailed = true;
       Serial.println("FAIL: writing fuses failed");
@@ -390,7 +394,7 @@ void flashBackpackBus() {
       return; 
     }
     
-    Serial.println("-- writing flash");
+    Serial.println("-- Writing flash");
     if (!pgm.writeProgram(0x0000, attiny13a_flash, sizeof(attiny13a_flash))) {
       testFailed = true;
       Serial.println("FAIL: writing flash failed");
@@ -398,55 +402,45 @@ void flashBackpackBus() {
       return; 
     }
     
-    Serial.println("-- writing EEPROM");
-    const byte * eeprom = attiny13a_eeprom;
+    Serial.println("-- Writing EEPROM");
+   
+    uint8_t eepromSize = sizeof(attiny13a_eeprom);
+    uint8_t idCrc;
+    uint16_t eepromCrc;
     
-    for (int i=0; i<64; i++) {
-//      Serial.print("0x");
-//      Serial.print(i, HEX);
-//      Serial.print(": ");
-      if (i == 6) { // this is our unique ID, so get from settings
-//        Serial.println(bpUniqueId, HEX);
-        pgm.writeEeprom(i++, (bpUniqueId >> 16) & 0xFF);
-        pgm.writeEeprom(i++, (bpUniqueId >> 8) & 0xFF);
-        pgm.writeEeprom(i, (bpUniqueId >> 0) & 0xFF);
-      } else {
-        pgm.writeEeprom(i, pgm_read_byte(eeprom + i));
-//        Serial.println(pgm_read_byte(eeprom + i), HEX);
-      }
+    byte eeprom[eepromSize];
+    memcpy_P(eeprom, attiny13a_eeprom, eepromSize);
+    
+    // set CRC and unique ID values in eeprom
+    eeprom[7] = (bpUniqueId >> 16) & 0xFF;
+    eeprom[8] = (bpUniqueId >> 8) & 0xFF;
+    eeprom[9] = (bpUniqueId >> 0) & 0xFF;
+
+    // size of ID section, byte offsets 3-9
+    eeprom[0x0A] = pinoccio_crc_generate_byte(0x12F, idCrc, eeprom+3, 7);
+    
+    // size of eeprom contents - 2 bytes for final checksum
+    eepromCrc = pinoccio_crc_generate_word(0x1A7D3, eepromCrc, eeprom, 0x39);
+    eeprom[0x39] = (eepromCrc >> 8) & 0xFF; 
+    eeprom[0x3A] = (eepromCrc >> 0) & 0xFF;
+    
+    for (int i=0; i<eepromSize; i++) {
+      pgm.writeEeprom(i, eeprom[i]);
     }
-    Serial.println("-- reading EEPROM");
-    for (int i=0; i<64; i++) {
-//      Serial.print("0x");
-//      Serial.print(i, HEX);
-//      Serial.print(": ");
-      if (i == 6) { // this is our unique ID, so get from settings
-        uint32_t tmpUniqueId = 0;
-        tmpUniqueId |= pgm.readEeprom(i++) << 16;
-        tmpUniqueId |= pgm.readEeprom(i++) << 8;
-        tmpUniqueId |= pgm.readEeprom(i) << 0;
-//        Serial.println(tmpUniqueId, HEX);
-        if (tmpUniqueId != bpUniqueId) {
-          Serial.print("FAIL: EEPROM failed to write unique ID");
-          Serial.print("- Expected: ");
-          Serial.println(bpUniqueId);
-          Serial.print("- Read: ");
-          Serial.println(tmpUniqueId);
-          testFailed = true;
-          return;
-        }
+  
+    Serial.println("-- Reading EEPROM");
+    for (int i=0; i<eepromSize; i++) {
+      if (eeprom[i] != pgm.readEeprom(i)) {
+        Serial.print("FAIL: EEPROM failed to write correctly at address: 0x");
+        Serial.println(i, HEX);
+        Serial.print("- Expected: ");
+        Serial.println(eeprom[i], HEX);
+        Serial.print("- Read: ");
+        Serial.println(pgm.readEeprom(i), HEX);
+        testFailed = true;
+        return;
       } else {
-        if (pgm_read_byte(eeprom + i) != pgm.readEeprom(i)) {
-          Serial.print("FAIL: EEPROM failed to write correctly at address: 0x");
-          Serial.println(i, HEX);
-          Serial.print("- Expected: ");
-          Serial.println(pgm_read_byte(eeprom + i));
-          Serial.print("- Read: ");
-          Serial.println(pgm.readEeprom(i));
-          testFailed = true;
-          return;
-        }
-//        Serial.println(pgm.readEeprom(i), HEX);
+        //printEepromAddress(i, pgm.readEeprom(i));
       }
     }
   } else {
@@ -461,23 +455,35 @@ void flashBackpackBus() {
 void testBackpackBus() {
   putWifiInProgramMode();
   Serial.println("- Test Backpack Bus -");
-  
+  digitalWrite(VCC_ENABLE, HIGH);
+  delay(500);
   bp.begin(BACKPACK_BUS);
+  delay(250);
   
+  Serial.println("-- Enumerating backpack bus");
   if (bp.enumerate()) {
-      Serial.print("Found ");
+    if (bp.num_slaves != 1) {
+      Serial.print("FAIL: Found ");
       Serial.print(bp.num_slaves);
-      Serial.println(" slaves");
+      Serial.println(" slaves but expected 1 slave");
+      testFailed = true;
+      return;
+    } else {
+      Serial.println("-- Found one backpack");
+    }
 
-      for (uint8_t i = 0; i < bp.num_slaves; ++ i) {
-          printHex(bp.slave_ids[i], sizeof(bp.slave_ids[0]));
-          Serial.println();
-          //uint8_t buf[64];
-          //bp.readEeprom(i + 1, 0, buf, sizeof(buf));
-          //Serial.print("EEPROM: ");
-          //printHex(buf, sizeof(buf));
-          //Serial.println();
-      }
+    if (bp.slave_ids[0][1] != 0x00 || bp.slave_ids[0][2] != 0x01) {
+      Serial.print("FAIL: expected to see backpack model 0x0001 but received: 0x");
+      Serial.print(bp.slave_ids[0][1], HEX);
+      Serial.println(bp.slave_ids[0][2], HEX);
+      testFailed = true;
+      return;
+    } else {
+      Serial.print("-- And it's a Wi-Fi backpack with ID: 0x");
+      Serial.print(bp.slave_ids[0][4], HEX);
+      Serial.print(bp.slave_ids[0][5], HEX);
+      Serial.println(bp.slave_ids[0][6], HEX);
+    }
   } else {
       bp.printLastError(Serial);
       Serial.println();
@@ -601,3 +607,9 @@ void resetSPIChipSelectPins() {
   delay(1);
 }
 
+void printEepromAddress(int i, byte val) {
+  Serial.print("0x");
+  Serial.print(i, HEX);
+  Serial.print(": ");
+  Serial.println(val, HEX); 
+}
