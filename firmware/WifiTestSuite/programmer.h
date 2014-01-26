@@ -127,6 +127,8 @@ public:
   void eraseChip();
   bool foundSignature();
 
+  static void showHex(const byte b, const boolean newline = false, const boolean show0x = true, const boolean spaceAfter = true);
+  
 protected:
   byte program(const byte b1, const byte b2=0, const byte b3=0, const byte b4=0);
   byte readFlash(unsigned long addr);
@@ -135,7 +137,6 @@ protected:
   void pollUntilReady();
   void commitPage(unsigned long addr);
   void writeFuse(const byte newValue, const byte instruction);
-  void showHex(const byte b, const boolean newline = false, const boolean show0x = true);
 
   int foundSig;
 

@@ -1,3 +1,4 @@
+#include <GS.h>
 #include <serialGLCDlib.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -5,7 +6,10 @@
 #include <crc.h>
 #include <Scout.h>
 #include <utility/WiFiBackpack.h>
+
 #include "programmer.h"
+
+GSModule gs;
 
 serialGLCD lcd;
 #define TINY_13_RESET 3
@@ -16,6 +20,14 @@ serialGLCD lcd;
 #define MICRO_SD_CS 8
 #define BP_FLASH_CS SS
 
+#define AVR_TESTSUITE_DEBUG
+#ifdef AVR_TESTSUITE_DEBUG
+#  define TD(x) x
+#else
+#  define TD(x)
+#endif
+FlashClass DriverFlash(DRIVER_FLASH_CS, SPI);
+
 const int buttonPin = A3;
 bool testIsRunning = false;
 bool wifiFlashUpgradeRunning = false;
@@ -25,12 +37,20 @@ char buffer[256];
 int ctr = 0;
 bool wifiResultReady = false;
 
-uint32_t S2W_APP1_IMG_ADDR = 0x10000;
-uint32_t S2W_APP2_IMG_ADDR = 0x50000;
-uint32_t WFW_REL_IMG_ADDR = 0xA0000;
-uint32_t WIFI_EXTERNAL_FLASH_IMG_ADDR = 0x100000;
+char macAddr[6];
 
-uint32_t bpUniqueId = 0x50;
+const uint32_t HW_SERIAL_ADDR = 0x1000;
+const uint32_t S2W_APP1_IMG_ADDR = 0x10000;
+const uint32_t S2W_APP2_IMG_ADDR = 0x50000;
+const uint32_t WFW_REL_IMG_ADDR = 0xA0000;
+const uint32_t WIFI_EXTERNAL_FLASH_IMG_ADDR = 0x100000;
+
+/* IDs < 1024 reserved for internal testing/use */
+const bool RESET_HW_SERIAL = false;
+const uint32_t HW_SERIAL_INIT = 0x400;    // 1024
+
+uint32_t hwSerial;
+
 
 PBBP bp;
   
@@ -39,16 +59,33 @@ void setup() {
   pinMode(VCC_ENABLE, OUTPUT);
   digitalWrite(VCC_ENABLE, HIGH);
   
+  getSettingsFromFlash();
   testJigSetup();
+  RgbLed.cyan();
 }
 
 void loop() {
   testJigLoop();
 }
 
+void getSettingsFromFlash() {
+  TD(Serial.println("-- Setting up unique ID handler"));
+  resetSPIChipSelectPins();
+  
+  if (RESET_HW_SERIAL == true) {
+    TD(Serial.print("--- Initializing unique ID to: 0x"));
+    TD(Serial.println(HW_SERIAL_INIT, HEX));
+    writeHwSerialToFlash(HW_SERIAL_INIT);
+  }
+  
+  TD(Serial.print("-- Reading HW unique ID from flash: 0x"));
+  hwSerial = readHwSerialFromFlash();
+  TD(Serial.println(hwSerial, HEX));
+  TD(Serial.println("--- Done"));
+}
+
 void testJigSetup() {
   pinMode(buttonPin, INPUT_PULLUP);
-  RgbLed.cyan();
   Serial.println("Wi-Fi Test Jig ready to go!");
 }
 
@@ -71,18 +108,23 @@ void startTest() {
   }
   testIsRunning = true;
   testFailed = false;
+/*
+  putWifiInProgramMode();
+  getWifiMACAddress();
+  getWifiSettings();
+  eraseWifiModule();
+  updateWifiFirmwareWFW();
+  writeWifiFlash();
+  updateWifiFirmwareApp1();
+  updateWifiFirmwareApp2();
+  writeWifiSettings();
+  writeWifiMACAddress();
+  putWifiInRunMode();
+*/  
+  putWifiInRunMode();
+  testWifi();
 
-  // getWifiMACAddress();
-  // writeWifiFlash();
-  // updateWifiSettings();
-  // updateWifiFirmwareWFW();
-  // updateWifiFirmwareApp1();
-  // updateWifiFirmwareApp2();
-  // writeWifiMACAddress();
-  
-  // configureWifi();
-  // testWifi();
-  
+  putWifiInProgramMode();  
   testSerialFlash();
   
   flashBackpackBus();
@@ -96,230 +138,44 @@ void startTest() {
     RgbLed.red();
   }
   Serial.println("Test complete");
+  Serial.println();
   testJigSetup();
 }
 
-void writeWifiFlash() {
-  Serial.println("- Write Wi-Fi Flash -");
-
-  if (!putWifiToSleep()) {
-    Serial.println("FAIL: Wi-Fi module did not go to sleep");
-    testFailed = true;
-    return;
-  }
-  
-  byte buffer[256] = {0};
-  byte readBuffer[256] = {0};
-  
-  FlashClass DriverFlash(DRIVER_FLASH_CS, SPI);
-
-  uint32_t start = millis();
-  
-  while (!DriverFlash.available()) {
-    if (millis() - start > 1000) {
-      Serial.println("FAIL: Driver Serial flash chip not found");
-      testFailed = true;
-      return;
-    }
-  }
-  Serial.println("--- Driver Serial flash chip found");
-  DriverFlash.end();
-
-  FlashClass GSFlash(GS_FLASH_CS, SPI);
-  start = millis();
-  
-  while (!GSFlash.available()) {
-    if (millis() - start > 1000) {
-      Serial.println("FAIL: GS Serial flash chip not found");
-      testFailed = true;
-      return;
-    }
-  }
-  Serial.println("--- GS Serial flash chip found");
-  
-  Serial.println("--- Erasing chip");
-  GSFlash.bulkErase();
-  
-  for (uint32_t i=0; i<0x100000; i+=256) {
-    if (i % 100000 == 0) {
-      Serial.print("-- Writing to address: 0x");
-      Serial.println(i, HEX);
-    }
-    
-    GSFlash.end();
-    Serial.println("--- Reading 256 bytes from driver flash");
-    DriverFlash.begin(DRIVER_FLASH_CS, SPI);
-    DriverFlash.read(WIFI_EXTERNAL_FLASH_IMG_ADDR + i, &buffer, 256);
-    DriverFlash.end();
-    Serial.println("--- Writing 256 bytes to GS flash");
-    GSFlash.begin(GS_FLASH_CS, SPI);
-    GSFlash.write(i, &buffer, 256);
-    Serial.println("--- Checking that write was successful");
-    GSFlash.read(0xF0000, &readBuffer, 256);
-    if (strncmp((const char *)buffer, (char *)readBuffer, 256) != 0) {
-      Serial.print("FAIL: GS Serial failed to write correctly at address: 0x");
-      Serial.println(i, HEX);
-      printHex((const uint8_t *)buffer, 256);
-      Serial.println();
-      printHex((const uint8_t *)readBuffer, 256);
-      Serial.println();
-      testFailed = true;
-    }
-  }
-}
-
-void configureWifi() {
-  Serial.println("- Configure Wi-Fi -");
-  
-  if (!Gainspan.setup(9600)) {
-    if (!Gainspan.setup(115200)) {
-      Serial.println("FAIL: Wi-Fi not responding");
-      testFailed = true;
-    } 
-    Gainspan.init();
-  }
-  Serial.println("--- passed");
-  /*
-  uint32_t start = millis();
-  bool timedOut = false;
-  
-  Serial1.println("AT");
-  
-  while (!wifiResultReady) {
-    if (millis() - start > 30) {
-      timedOut = true;
-      configureWifi(115200);
-      return;
-    }
-    waitForResponse();
-  }
-  wifiResultReady = false;
-
-  if (strncmp((const char*)buffer, "AT", 2) != 0) {
-    Serial.println("FAIL: Wi-Fi not responding");
-    testFailed = true;
-  }
-  
-  while (!wifiResultReady) {
-    waitForResponse();
-  }
-  wifiResultReady = false;
-  
-  if (strncmp((const char*)buffer, "OK", 2) == 0) {
-    Serial.println("--- AT passed");
-  } else {
-    Serial.println("FAIL: AT didn't return OK");
-    testFailed = true;
-  }
-  
-  */
-  
-  return;
-}
-
 void testWifi() {
-  Serial.println("- Test Wi-Fi -");
+  Serial.println("- Test Wi-Fi Module -");
+  SPI.setClockDivider(SPI_CLOCK_DIV8);
+  SPI.begin();
+  gs.begin(WIFI_CS);
   
-  if (Gainspan.getAppVersion() != "2.5.1" ||
-      Gainspan.getGepsVersion() != "2.5.1" ||
-      Gainspan.getWlanVersion() != "2.5.1") {
-    Serial.println("Wi-Fi module requires a firmware upgrade");
-    flashWifi();
+  Serial.print("-- Getting Version: ");
+  gs.writeCommand("AT+VER=?");
+  gs.readResponse(print_line, &Serial);
+  if (strncmp(buffer, "S2W WLAN VERSION=2.5.1", 22) != 0) {
+    testFailed = true;
+    Serial.println();
+    Serial.print("FAIL: Unexpected response from AT+VER=? command: ");
+    Serial.println(buffer);
+    return;
   } else {
-    Serial.println("--- passed");
+    Serial.println("Success");
   }
   
-  /*
-  Serial1.println("AT+VER=?");
-  
-  while (!wifiResultReady) {
-    waitForResponse();
-  }
-  wifiResultReady = false;
-  
-  if (strncmp((const char*)buffer, "AT+VER=?", 8) != 0) {
-    Serial.println("FAIL: Wi-Fi not responding");
+  Serial.print("-- Scanning for networks: ");
+  gs.writeCommand("AT+WS");
+  gs.readResponse(print_line, &Serial);
+  if (strncmp(buffer, "No.Of AP Found:", 15) != 0) {
     testFailed = true;
-  }
-  
-  while (!wifiResultReady) {
-    waitForResponse();
-  }
-  wifiResultReady = false;
-  
-  if (strncmp((const char*)buffer, "S2W APP VERSION=2.4.3", 21) == 0) {
-    Serial.println("--- Latest firmware (2.4.3) is loaded ");
+    Serial.println();
+    Serial.print("FAIL: Unexpected response from AT+WS command: ");
+    Serial.println(buffer);
+    return;
   } else {
-    Serial.println("FAIL: Old firmware found, entering Wi-Fi upgrade mode");
-    testFailed = true;
-    flashWifi();
-  } 
-  
-  Serial1.println("AT+WS");
-  
-  while (!wifiResultReady) {
-    waitForResponse();
+    Serial.println("Success");
   }
-  wifiResultReady = false;
-  
-  if (strncmp((const char*)buffer, "AT+WS", 5) != 0) {
-    Serial.println("FAIL: Wi-Fi not responding");
-    testFailed = true;
-  }
-  
-  // header of output, ignore
-  while (!wifiResultReady) {
-    waitForResponse();
-  }
-  wifiResultReady = false;
-  
-  // blank line
-  while (!wifiResultReady) {
-    waitForResponse();
-  }
-  wifiResultReady = false;
-  
-  // blank line
-  while (!wifiResultReady) {
-    waitForResponse();
-  }
-  wifiResultReady = false;
-  
-  if (strncmp((const char*)buffer, " 90:84:0d:d6:8f:ab, Pinoccio", 29) == 0) {
-    Serial.println("--- Found Pinoccio access point");
-  } else {
-    Serial.println("FAIL: Wi-Fi AP scan failed to find Pinoccio");
-    testFailed = true;
-  } 
-  */
-}
-
-void flashWifi() {
-  putWifiInProgramMode();
-  
-  Serial.println("- Ready to start Wi-Fi upgrade. Close serial monitor and upgrade using gs_programmer");
-  wifiFlashUpgradeRunning = true;
-  
-  while (wifiFlashUpgradeRunning == true) {
-  
-    // read from port 1, send to port 0:
-    while (Serial1.available()) {
-      int inByte = Serial1.read();
-      Serial.write(inByte); 
-    }
-  
-    // read from port 0, send to port 1:
-    while (Serial.available()) {
-      int inByte = Serial.read();
-      Serial1.write(inByte); 
-    }
-  }
-  
-  return;
 }
 
 void testSerialFlash() {
-  putWifiInProgramMode();
   Serial.println("- Test Serial Flash -");
   
   FlashClass Flash(BP_FLASH_CS, SPI);
@@ -335,9 +191,9 @@ void testSerialFlash() {
     }
   }
 
-  Serial.println("--- Serial flash chip found");
+  Serial.println("-- Serial flash chip found");
  
-  Serial.println("--- Erasing subsector");
+  Serial.println("-- Erasing subsector");
   Flash.subSectorErase(addr);
   
   char dataToChip[128] = "Testing123456789";
@@ -362,17 +218,16 @@ void testSerialFlash() {
   }
  
   if (testFailed == false) {
-    Serial.println("--- Data written to and successfully read from serial flash");
+    Serial.println("-- Data written to and successfully read from serial flash");
   }
 
-  Serial.println("--- Erasing test data");
+  Serial.println("-- Erasing test data");
   Flash.subSectorErase(addr);
   Flash.end();
   return;
 }
 
 void flashBackpackBus() {
-  putWifiInProgramMode();
   Serial.println("- Flash Backpack Bus Program -");
   
   AVRProgrammer pgm = AVRProgrammer(TINY_13_RESET, SPI, SPI_CLOCK_DIV128);
@@ -411,10 +266,13 @@ void flashBackpackBus() {
     byte eeprom[eepromSize];
     memcpy_P(eeprom, attiny13a_eeprom, eepromSize);
     
+    byte val[4];
+    convertLongToBytes(val, hwSerial);
+    
     // set CRC and unique ID values in eeprom
-    eeprom[7] = (bpUniqueId >> 16) & 0xFF;
-    eeprom[8] = (bpUniqueId >> 8) & 0xFF;
-    eeprom[9] = (bpUniqueId >> 0) & 0xFF;
+    eeprom[7] = val[2];
+    eeprom[8] = val[1];
+    eeprom[9] = val[0];
 
     // size of ID section, byte offsets 3-9
     eeprom[0x0A] = pinoccio_crc_generate_byte(0x12F, idCrc, eeprom+3, 7);
@@ -446,14 +304,16 @@ void flashBackpackBus() {
   } else {
     testFailed = true;
   }
-
-  Serial.println("-- complete");
+  
   pgm.end();
+  
+  if (testFailed == false) {
+    incrementHwSerial();
+  }
   return;
 }
 
 void testBackpackBus() {
-  putWifiInProgramMode();
   Serial.println("- Test Backpack Bus -");
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
@@ -474,15 +334,17 @@ void testBackpackBus() {
 
     if (bp.slave_ids[0][1] != 0x00 || bp.slave_ids[0][2] != 0x01) {
       Serial.print("FAIL: expected to see backpack model 0x0001 but received: 0x");
-      Serial.print(bp.slave_ids[0][1], HEX);
-      Serial.println(bp.slave_ids[0][2], HEX);
+      printHex((byte *)bp.slave_ids[0][1], 1);
+      printHex((byte *)bp.slave_ids[0][2], 1);
+      Serial.println();
       testFailed = true;
       return;
     } else {
       Serial.print("-- And it's a Wi-Fi backpack with ID: 0x");
       Serial.print(bp.slave_ids[0][4], HEX);
       Serial.print(bp.slave_ids[0][5], HEX);
-      Serial.println(bp.slave_ids[0][6], HEX);
+      Serial.print(bp.slave_ids[0][6], HEX);
+      Serial.println();
     }
   } else {
       bp.printLastError(Serial);
@@ -500,66 +362,6 @@ void printHex(const uint8_t *buf, uint8_t len) {
     }
 }
 
-void waitForResponse() {
-  if (Serial1.available()) {
-    while (Serial1.available()) {
-      int inByte = Serial1.read();
-      Serial.write(inByte);
-      buffer[ctr++] = inByte;
-      if (inByte == '\n' || inByte == '\r' || inByte == 0) {
-        if (ctr > 1) {
-          wifiResultReady = true;
-        }
-        buffer[ctr--] = 0;
-        ctr = 0;
-      }
-    }
-  }
-}
-
-bool putWifiToSleep() {
-  Serial1.begin(9600);
-  
-  putWifiInRunMode();
-  Serial.println("- Putting Gainspan into deep sleep");
- 
-  uint32_t start = millis();
-  bool timedOut = false;
-  
-  Serial1.println("AT");
-  
-  while (!wifiResultReady) {
-    if (millis() - start > 5000) {
-      timedOut = true;
-      Serial.println("FAIL: Timeout while waiting for response");
-      return false;
-    }
-    waitForResponse();
-  }
-  wifiResultReady = false;
-
-  if (strncmp((const char*)buffer, "AT", 2) != 0) {
-    Serial.println("FAIL: Wi-Fi not responding");
-    return false;
-  }
-  
-  while (!wifiResultReady) {
-    waitForResponse();
-  }
-  wifiResultReady = false;
-  
-  if (strncmp((const char*)buffer, "OK", 2) == 0) {
-    Serial.println("--- Wi-Fi module responded to AT");
-  } else {
-    Serial.println("FAIL: AT didn't return OK");
-    return false;
-  }
-  
-  Serial1.println("AT+PSDPSLEEP");
-  delay(1000);
-  return true;
-}
-
 void putWifiInProgramMode() {
   Serial.println("- Putting Gainspan into program mode");
   resetSPIChipSelectPins();
@@ -572,7 +374,10 @@ void putWifiInProgramMode() {
   digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
   
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(1000); 
+  delay(500);
+  
+  Serial1.begin(115200);
+  while(Serial1.read() != -1);
 }
 
 void putWifiInRunMode() {
@@ -587,7 +392,7 @@ void putWifiInRunMode() {
   digitalWrite(WIFI_PROGRAM_SELECT, LOW);
  
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(1000);
+  delay(500);
 }
 
 void resetSPIChipSelectPins() {
@@ -612,4 +417,205 @@ void printEepromAddress(int i, byte val) {
   Serial.print(i, HEX);
   Serial.print(": ");
   Serial.println(val, HEX); 
+}
+
+void send(byte *buf, int length) {
+  bool debug = false;
+  
+  for (int i=0; i<length; i++) {
+    Serial1.write(buf[i]);
+  }
+}
+
+void receive(byte *buf, int length, int timeout, bool debug) {
+  uint32_t time = millis();
+  int i;
+  
+//  debug ? (Serial.print("length: ")) : false;
+//  debug ? (Serial.println(length)) : false;
+//  debug ? (Serial.print("timeout: ")) : false;
+//  debug ? (Serial.println(timeout)) : false;
+  
+  memset(buf, 0, length);
+  i = 0;
+  
+//  debug ? (Serial.print("millis: ")) : false;
+//  debug ? (Serial.println(millis())) : false;
+//  debug ? (Serial.print("time: ")) : false;
+//  debug ? (Serial.println(time)) : false;
+  
+  while (millis() - time < timeout) {
+    if (Serial1.available() > 0) {
+      buf[i] = Serial1.read();
+      if (debug) {
+        AVRProgrammer::showHex(buf[i], false, true);
+      }
+      i++;
+    }
+    if (i >= length) {
+      break;
+    }
+  }
+  debug ? (Serial.println()) : false;
+  
+//  debug ? (Serial.print("millis: ")) : false;
+//  debug ? (Serial.println(millis())) : false;
+//  debug ? (Serial.print("time: ")) : false;
+//  debug ? (Serial.println(time)) : false;
+  
+  // flush buffer
+  while(Serial1.read() != -1);
+}
+
+static void print_line(const uint8_t *buf, uint16_t len, void *data) {
+  //static_cast<Print*>(data)->write(buf, len);
+  //static_cast<Print*>(data)->println();
+  strncpy(buffer, (char *)buf, len);
+}
+
+void writeHwSerialToFlash(uint32_t hwSerial) {
+  char dataWrite[5];
+  char dataCheck[5];
+  char dataRead[5];
+
+  digitalWrite(VCC_ENABLE, HIGH); 
+  DriverFlash.begin(DRIVER_FLASH_CS, SPI);
+  
+  TD(Serial1.println("--- Erasing subsector"));
+  DriverFlash.subSectorErase(HW_SERIAL_ADDR);
+  
+  TD(Serial1.print("--- Writing HW unique ID: "));
+  convertLongToBytes((byte *)dataWrite, hwSerial);
+  TD(Serial1.println(convertBytesToLong((byte *)dataWrite), HEX));
+ 
+  DriverFlash.write(HW_SERIAL_ADDR, &dataWrite, 4);
+  TD(Serial1.print("--- Checking previous write: "));
+  DriverFlash.read(HW_SERIAL_ADDR, &dataCheck, 4);
+  
+  TD(Serial1.println(convertBytesToLong((byte *)dataCheck), HEX));
+  
+  if (strncmp(dataWrite, dataCheck, 4) != 0) {
+    TD(Serial1.println("FAIL: Writing serial failed"));
+    TD(Serial1.println(atoi(dataWrite), HEX));
+    TD(Serial1.println(atoi(dataCheck), HEX));
+  } else {
+    TD(Serial1.println("--- Write succeeded"));
+  }
+  DriverFlash.end();
+}
+
+uint32_t readHwSerialFromFlash() {
+  digitalWrite(VCC_ENABLE, HIGH);
+  char dataRead[5];
+  DriverFlash.begin(DRIVER_FLASH_CS, SPI);
+  DriverFlash.read(HW_SERIAL_ADDR, &dataRead, 4);
+  DriverFlash.end();
+  return convertBytesToLong((byte *)dataRead);
+}
+
+void convertLongToBytes(byte *convBytes, uint32_t target) {
+  bool debug = false;
+  if (debug) {
+    TD(Serial1.print("convertLongToBytes using target: ")); 
+    TD(Serial1.println(target, HEX)); 
+  }
+  
+  for (int i=0; i<4; i++) {
+    convBytes[i] = (target & 0xFF);
+    target = target >> 8;
+    if (debug) {
+      TD(Serial1.print(convBytes[i], HEX)); 
+    }
+  }
+  if (debug) {
+    TD(Serial1.println()); 
+  }
+  convBytes[4] = 0;
+}
+
+uint32_t convertBytesToLong(byte *convBytes) {
+  uint32_t target = 0;
+  
+  for (int i=3; i>=0; i--) {
+    target |= convBytes[i];
+    if (i > 0) {
+      target = target << 8;
+    }
+  }
+  return target;
+}
+
+void convertWordToBytes(byte *convBytes, uint16_t target) {
+  for (int i=0; i<2; i++) {
+    convBytes[i] = (target & 0xFF);
+    target = target >> 8;
+  }
+  convBytes[2] = 0;
+}
+
+uint16_t convertBytesToWord(byte *convBytes) {
+  uint16_t target = 0;
+  
+  for (int i=1; i>=0; i--) {
+    target |= convBytes[i];
+    if (i > 0) {
+      target = target << 8;
+    }
+  }
+  return target;
+}
+
+void incrementHwSerial() {
+  TD(Serial1.println("-- Increment unique ID and store to flash"));
+  
+  hwSerial = readHwSerialFromFlash() + 1;
+  writeHwSerialToFlash(hwSerial);
+  TD(Serial1.println("--- Done"));
+}
+
+
+void getWifiMACAddress() {
+  Serial.println("- Get Wi-Fi MAC address -");
+  byte rx[128];  
+  
+  byte  tx[] = {0xA5, 0x07, 0x00, 0x00, 0x00, 0x06, 0x00, 0xF2, 0x01, 0x00, 0x10, 0x00, 0x05, 0x20};
+  send(tx, sizeof(tx));
+  receive(rx, 14, 5000, false);
+  
+  byte tx2[] = {0xA5, 0x07, 0x00, 0x00, 0x00, 0x0A, 0x00, 0xEE, 0x04, 0x00, 0xE8, 0x01, 0x08, 0x00, 0x04, 0x00, 0x00, 0x00};
+  send(tx2, sizeof(tx2));
+  receive(rx, 26, 5000, true);
+  
+  // if address is in old memory location, save and exit
+  if (rx[12] == 0x20 && rx[13] == 0xF8) { 
+    saveMacAddress(rx);
+    testFailed = false;
+    return;
+  }
+  
+  byte tx3[] = {0xA5, 0x07, 0x00, 0x00, 0x00, 0x0A, 0x00, 0xEE, 0x04, 0x00, 0xF8, 0x01, 0x08, 0x00, 0x04, 0x00, 0x00, 0x00};
+  send(tx3, sizeof(tx3));
+  receive(rx, 26, 5000, true);
+  
+  // if address is in new memory location, save and exit
+  if (rx[12] == 0x20 && rx[13] == 0xF8) { 
+    saveMacAddress(rx);
+    testFailed = false;
+    return;
+  }
+  
+  testFailed = true;
+  return;
+}
+
+void saveMacAddress(byte *rx) {
+  Serial.print("-- Found MAC address: ");
+  for (int i=0; i<6; i++) {
+    macAddr[i] = rx[12+i];    
+    AVRProgrammer::showHex(macAddr[i], false, false, false);
+    if (i < 5) {
+      Serial.print(":");
+    }
+  }
+  Serial.println();
 }
