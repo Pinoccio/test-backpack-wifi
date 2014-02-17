@@ -2,9 +2,8 @@
 #include <serialGLCDlib.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <PBBP.h>
-#include <crc.h>
 #include <Scout.h>
+#include <Backpacks.h>
 #include <utility/WiFiBackpack.h>
 
 #include "programmer.h"
@@ -52,12 +51,11 @@ const uint32_t HW_SERIAL_INIT = 0x400;    // 1024
 uint32_t hwSerial;
 
 
-PBBP bp;
-  
 void setup() {
   Serial.begin(115200);
   pinMode(VCC_ENABLE, OUTPUT);
   digitalWrite(VCC_ENABLE, HIGH);
+  Backpacks::setup();
   
   getSettingsFromFlash();
   testJigSetup();
@@ -316,39 +314,29 @@ void flashBackpackBus() {
 void testBackpackBus() {
   Serial.println("- Test Backpack Bus -");
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(500);
-  bp.begin(BACKPACK_BUS);
-  delay(250);
+  delay(5);
   
   Serial.println("-- Enumerating backpack bus");
-  if (bp.enumerate()) {
-    if (bp.num_slaves != 1) {
+  if (Backpacks::detect()) {
+    if (Backpacks::num_backpacks != 1) {
       Serial.print("FAIL: Found ");
-      Serial.print(bp.num_slaves);
-      Serial.println(" slaves but expected 1 slave");
+      Serial.print(Backpacks::num_backpacks);
+      Serial.println(" backpack but expected 1 backpack");
       testFailed = true;
       return;
     } else {
       Serial.println("-- Found one backpack");
     }
 
-    if (bp.slave_ids[0][1] != 0x00 || bp.slave_ids[0][2] != 0x01) {
+    if (Backpacks::info[0].id.model != 0x0001) {
       Serial.print("FAIL: expected to see backpack model 0x0001 but received: 0x");
-      printHex((byte *)bp.slave_ids[0][1], 1);
-      printHex((byte *)bp.slave_ids[0][2], 1);
-      Serial.println();
+      Serial.println(Backpacks::info[0].id.model);
       testFailed = true;
       return;
     } else {
       Serial.print("-- And it's a Wi-Fi backpack with ID: 0x");
-      Serial.print(bp.slave_ids[0][4], HEX);
-      Serial.print(bp.slave_ids[0][5], HEX);
-      Serial.print(bp.slave_ids[0][6], HEX);
-      Serial.println();
+      Serial.println(Backpacks::info[0].id.serial);
     }
-  } else {
-      bp.printLastError(Serial);
-      Serial.println();
   }
   
   return;
