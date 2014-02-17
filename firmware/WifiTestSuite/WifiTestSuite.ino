@@ -2,6 +2,7 @@
 #include <serialGLCDlib.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <Pbbe.h>
 #include <Scout.h>
 #include <Backpacks.h>
 #include <utility/WiFiBackpack.h>
@@ -273,10 +274,10 @@ void flashBackpackBus() {
     eeprom[9] = val[0];
 
     // size of ID section, byte offsets 3-9
-    eeprom[0x0A] = pinoccio_crc_generate_byte(0x12F, idCrc, eeprom+3, 7);
+    eeprom[0x0A] = Pbbe::uniqueIdChecksum(eeprom+3);
     
     // size of eeprom contents - 2 bytes for final checksum
-    eepromCrc = pinoccio_crc_generate_word(0x1A7D3, eepromCrc, eeprom, 0x39);
+    eepromCrc = Pbbe::eepromChecksum(eeprom, 0x39);
     eeprom[0x39] = (eepromCrc >> 8) & 0xFF; 
     eeprom[0x3A] = (eepromCrc >> 0) & 0xFF;
     
