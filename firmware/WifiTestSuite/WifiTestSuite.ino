@@ -54,9 +54,10 @@ uint32_t hwSerial;
 
 void setup() {
   Serial.begin(115200);
+  pinMode(WIFI_PROGRAM_SELECT, OUTPUT);
+  digitalWrite(WIFI_PROGRAM_SELECT, LOW);
   pinMode(VCC_ENABLE, OUTPUT);
   digitalWrite(VCC_ENABLE, HIGH);
-  Backpacks::setup();
   
   getSettingsFromFlash();
   testJigSetup();
@@ -120,10 +121,10 @@ void startTest() {
   writeWifiMACAddress();
   putWifiInRunMode();
 */  
-  putWifiInRunMode();
-  testWifi();
+  //putWifiInRunMode();
+  //testWifi();
 
-  putWifiInProgramMode();  
+  //putWifiInProgramMode();  
   testSerialFlash();
   
   flashBackpackBus();
@@ -143,6 +144,7 @@ void startTest() {
 
 void testWifi() {
   Serial.println("- Test Wi-Fi Module -");
+  resetSPIChipSelectPins();
   SPI.setClockDivider(SPI_CLOCK_DIV8);
   SPI.begin();
   gs.begin(WIFI_CS);
@@ -176,6 +178,7 @@ void testWifi() {
 
 void testSerialFlash() {
   Serial.println("- Test Serial Flash -");
+  resetSPIChipSelectPins();
   
   FlashClass Flash(BP_FLASH_CS, SPI);
   
@@ -226,9 +229,21 @@ void testSerialFlash() {
   return;
 }
 
+void printHexBuffer(Print &p, const uint8_t *buf, size_t len, const char *sep = NULL)
+{
+  for (uint8_t i = 0; i < len; ++i) {
+    if (buf[i] < 0x10)
+      p.print('0');
+    p.print(buf[i], HEX);
+    if (sep)
+      p.print(sep);
+  }
+}
+
 void flashBackpackBus() {
   Serial.println("- Flash Backpack Bus Program -");
   
+  resetSPIChipSelectPins();
   AVRProgrammer pgm = AVRProgrammer(TINY_13_RESET, SPI, SPI_CLOCK_DIV128);
   pgm.startProgramming();
   pgm.getSignature();
@@ -303,7 +318,7 @@ void flashBackpackBus() {
   } else {
     testFailed = true;
   }
-  
+
   pgm.end();
   
   if (testFailed == false) {
@@ -314,41 +329,38 @@ void flashBackpackBus() {
 
 void testBackpackBus() {
   Serial.println("- Test Backpack Bus -");
+  resetSPIChipSelectPins();
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(5);
+  delay(500);
   
   Serial.println("-- Enumerating backpack bus");
-  if (Backpacks::detect()) {
-    if (Backpacks::num_backpacks != 1) {
-      Serial.print("FAIL: Found ");
-      Serial.print(Backpacks::num_backpacks);
-      Serial.println(" backpack but expected 1 backpack");
-      testFailed = true;
-      return;
-    } else {
-      Serial.println("-- Found one backpack");
-    }
+  Backpacks::setup();
+  
+  if (Backpacks::num_backpacks != 1) {
+    Serial.print("FAIL: Found ");
+    Serial.print(Backpacks::num_backpacks);
+    Serial.println(" backpack but expected 1 backpack");
+    testFailed = true;
+    return;
+  } else {
+    Serial.println("-- Found one backpack");
+  }
 
-    if (Backpacks::info[0].id.model != 0x0001) {
-      Serial.print("FAIL: expected to see backpack model 0x0001 but received: 0x");
-      Serial.println(Backpacks::info[0].id.model);
-      testFailed = true;
-      return;
-    } else {
-      Serial.print("-- And it's a Wi-Fi backpack with ID: 0x");
-      Serial.println(Backpacks::info[0].id.serial);
-    }
+  if (Backpacks::info[0].id.model != 0x0001) {
+    Serial.print("FAIL: expected to see backpack model 0x0001 but received: 0x");
+    Serial.println(Backpacks::info[0].id.model);
+    testFailed = true;
+    return;
+  } else {
+    Serial.print("-- And it's a Wi-Fi backpack with ID: 0x");
+    Serial.println(Backpacks::info[0].id.serial, HEX);
+    
+    Serial.println("-- Dump: printHexBuffer(Serial, Backpacks::info[0].id.raw_bytes, PBBP::UNIQUE_ID_LENGTH)");
+    printHexBuffer(Serial, Backpacks::info[0].id.raw_bytes, PBBP::UNIQUE_ID_LENGTH);
+    Serial.println();
   }
   
   return;
-}
-
-// Example code to dump backpack EEPROM contents:
-void printHex(const uint8_t *buf, uint8_t len) {
-    while (len--) {
-        if (*buf < 0x10) Serial.print("0");
-        Serial.print(*buf++, HEX);
-    }
 }
 
 void putWifiInProgramMode() {
