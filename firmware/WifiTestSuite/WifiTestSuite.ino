@@ -2,9 +2,9 @@
 #include <serialGLCDlib.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <PBBP.h>
-#include <crc.h>
+#include <Pbbe.h>
 #include <Scout.h>
+#include <Backpacks.h>
 #include <utility/WiFiBackpack.h>
 
 #include "programmer.h"
@@ -52,12 +52,11 @@ const uint32_t HW_SERIAL_INIT = 0x400;    // 1024
 uint32_t hwSerial;
 
 
-PBBP bp;
-  
 void setup() {
   Serial.begin(115200);
   pinMode(VCC_ENABLE, OUTPUT);
   digitalWrite(VCC_ENABLE, HIGH);
+  Backpacks::setup();
   
   getSettingsFromFlash();
   testJigSetup();
@@ -275,10 +274,10 @@ void flashBackpackBus() {
     eeprom[9] = val[0];
 
     // size of ID section, byte offsets 3-9
-    eeprom[0x0A] = pinoccio_crc_generate_byte(0x12F, idCrc, eeprom+3, 7);
+    eeprom[0x0A] = Pbbe::uniqueIdChecksum(eeprom+3);
     
     // size of eeprom contents - 2 bytes for final checksum
-    eepromCrc = pinoccio_crc_generate_word(0x1A7D3, eepromCrc, eeprom, 0x39);
+    eepromCrc = Pbbe::eepromChecksum(eeprom, 0x39);
     eeprom[0x39] = (eepromCrc >> 8) & 0xFF; 
     eeprom[0x3A] = (eepromCrc >> 0) & 0xFF;
     
@@ -316,39 +315,29 @@ void flashBackpackBus() {
 void testBackpackBus() {
   Serial.println("- Test Backpack Bus -");
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(500);
-  bp.begin(BACKPACK_BUS);
-  delay(250);
+  delay(5);
   
   Serial.println("-- Enumerating backpack bus");
-  if (bp.enumerate()) {
-    if (bp.num_slaves != 1) {
+  if (Backpacks::detect()) {
+    if (Backpacks::num_backpacks != 1) {
       Serial.print("FAIL: Found ");
-      Serial.print(bp.num_slaves);
-      Serial.println(" slaves but expected 1 slave");
+      Serial.print(Backpacks::num_backpacks);
+      Serial.println(" backpack but expected 1 backpack");
       testFailed = true;
       return;
     } else {
       Serial.println("-- Found one backpack");
     }
 
-    if (bp.slave_ids[0][1] != 0x00 || bp.slave_ids[0][2] != 0x01) {
+    if (Backpacks::info[0].id.model != 0x0001) {
       Serial.print("FAIL: expected to see backpack model 0x0001 but received: 0x");
-      printHex((byte *)bp.slave_ids[0][1], 1);
-      printHex((byte *)bp.slave_ids[0][2], 1);
-      Serial.println();
+      Serial.println(Backpacks::info[0].id.model);
       testFailed = true;
       return;
     } else {
       Serial.print("-- And it's a Wi-Fi backpack with ID: 0x");
-      Serial.print(bp.slave_ids[0][4], HEX);
-      Serial.print(bp.slave_ids[0][5], HEX);
-      Serial.print(bp.slave_ids[0][6], HEX);
-      Serial.println();
+      Serial.println(Backpacks::info[0].id.serial);
     }
-  } else {
-      bp.printLastError(Serial);
-      Serial.println();
   }
   
   return;
