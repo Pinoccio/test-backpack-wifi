@@ -53,7 +53,7 @@
 
 #include <SPI.h>
 #include <avr/pgmspace.h>
-#include "utility/Flash.h"
+#include "peripherals/Flash.h"
 
 // hex bootloader data
 #include "flash_attiny13a.h"
@@ -111,39 +111,37 @@ signatureType;
 const unsigned long kb = 1024;
 
 class AVRProgrammer {
-public:
-  AVRProgrammer(int CS, SPIClass &SPIDriver, int clockDivider);
-  void begin();
-  void end();
-  void startProgramming();
-  void getSignature();
-  void getFuseBytes();
-  bool writeFuseBytes(const byte lowFuse, const byte highFuse, const byte extendedFuse, const byte lockFuse=0xFF);
-  bool writeProgram(unsigned long loaderStart, const byte *image, const int length);
-  bool writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass *flash, const uint32_t flashAddress, const uint32_t length);
-  void readProgram(uint32_t address, uint32_t length);
-  uint8_t readEeprom(uint32_t address);
-  void writeEeprom(uint32_t address, uint8_t value);
-  void eraseChip();
-  bool foundSignature();
+  public:
+    AVRProgrammer(int CS, SPIClass &SPIDriver, int clockDivider);
+    void begin();
+    void end();
+    void startProgramming();
+    void getSignature();
+    void getFuseBytes();
+    bool writeFuseBytes(const byte lowFuse, const byte highFuse, const byte extendedFuse, const byte lockFuse = 0xFF);
+    bool writeProgram(unsigned long loaderStart, const byte *image, const int length);
+    bool writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass *flash, const uint32_t flashAddress, const uint32_t length);
+    void readProgram(uint32_t address, uint32_t length);
+    uint8_t readEeprom(uint32_t address);
+    void writeEeprom(uint32_t address, uint8_t value);
+    void eraseChip();
+    bool foundSignature();
 
-  static void showHex(const byte b, const boolean newline = false, const boolean show0x = true, const boolean spaceAfter = true);
-  
-protected:
-  byte program(const byte b1, const byte b2=0, const byte b3=0, const byte b4=0);
-  byte readFlash(unsigned long addr);
-  byte writeFlash(unsigned long addr, const byte data);
-  void showYesNo(const boolean b, const boolean newline = false);
-  void pollUntilReady();
-  void commitPage(unsigned long addr);
-  void writeFuse(const byte newValue, const byte instruction);
+    static void showHex(const byte b, const boolean newline = false, const boolean show0x = true, const boolean spaceAfter = true);
 
-  int foundSig;
+  protected:
+    byte program(const byte b1, const byte b2 = 0, const byte b3 = 0, const byte b4 = 0);
+    byte readFlash(unsigned long addr);
+    byte writeFlash(unsigned long addr, const byte data);
+    void showYesNo(const boolean b, const boolean newline = false);
+    void pollUntilReady();
+    void commitPage(unsigned long addr);
+    void writeFuse(const byte newValue, const byte instruction);
 
-  SPIClass &SPI;
-  int chipSelectPin;
-  byte lastAddressMSB;
-  int spiSpeed;
+    int foundSig;
+
+    SPIClass &SPI;
+    int chipSelectPin;
+    byte lastAddressMSB;
+    int spiSpeed;
 };
-
-

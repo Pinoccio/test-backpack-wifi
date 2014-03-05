@@ -1,10 +1,11 @@
-#include <serialGLCDlib.h>
+#include <SPI.h>
+#include <Wire.h>
 #include <Scout.h>
 #include <GS.h>
-#include <Wire.h>
-#include <SPI.h>
+#include <bitlash.h>
+#include <lwm.h>
+#include <js0n.h>
 
-serialGLCD lcd;
 #define TINY_13_RESET 3
 #define GS_FLASH_CS 4
 #define DRIVER_FLASH_CS 5

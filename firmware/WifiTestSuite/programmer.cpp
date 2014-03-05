@@ -55,7 +55,7 @@
 #include <avr/pgmspace.h>
 #include "programmer.h"
 
-//#define AVR_PROGRAMMER_DEBUG
+#define AVR_PROGRAMMER_DEBUG
 #ifdef AVR_PROGRAMMER_DEBUG
 #  define PD(x) x
 #else
@@ -69,7 +69,8 @@ signatureType signatures[] =
   // ATtiny13 family
   {
     {
-      0x1E, 0x90, 0x07     }
+      0x1E, 0x90, 0x07
+    }
     , "ATtiny13A",    1 * kb,   0,
     (byte*)attiny13a_flash,// loader image
     0x0000,      // start address
@@ -78,14 +79,14 @@ signatureType signatures[] =
     0x21,         // fuse low byte:
     0xFB,         // fuse high byte:
     0xFF,         // fuse extended byte:
-    0xFF   }
+  }
   ,       // lock bits: SPM is not allowed to write to the Boot Loader section.
 
 };
 
 // if signature found in above table, this is its index
 AVRProgrammer::AVRProgrammer(int CS, SPIClass &SPIDriver, int clockDivider) :
-chipSelectPin(CS), SPI(SPIDriver), spiSpeed(clockDivider) {
+  chipSelectPin(CS), SPI(SPIDriver), spiSpeed(clockDivider) {
   foundSig = -1;
   lastAddressMSB = 0;
 
@@ -93,11 +94,11 @@ chipSelectPin(CS), SPI(SPIDriver), spiSpeed(clockDivider) {
   pinMode(MOSI, OUTPUT);
   pinMode(MISO, INPUT);
 
-  this->SPI.setClockDivider(spiSpeed);
   begin();
 }
 
 void AVRProgrammer::begin() {
+  this->SPI.setClockDivider(spiSpeed);
   this->SPI.begin();
   pinMode(chipSelectPin, OUTPUT);
   digitalWrite(chipSelectPin, LOW);
@@ -111,7 +112,6 @@ void AVRProgrammer::end() {
 
 void AVRProgrammer::startProgramming() {
   byte confirm;
-  pinMode(chipSelectPin, OUTPUT);
 
   // we are in sync if we get back programAcknowledge on the third byte
   do {
@@ -158,14 +158,11 @@ void AVRProgrammer::getSignature() {
       if (signatures[foundSig].timedWrites) {
         PD(Serial.print("Writes are timed, not polled."));
       }
-      if (strncmp(signatures[j].desc, "ATtiny", 6) == 0) {
-        SPI.setClockDivider(SPI_CLOCK_DIV128); // slow down SPI for the tinys
-      }
       return;
     }
   }
 
-  PD(Serial.print("Unrecogized signature."));
+  PD(Serial.println("Unrecogized signature."));
 }
 
 void AVRProgrammer::getFuseBytes() {
@@ -184,63 +181,72 @@ void AVRProgrammer::getFuseBytes() {
 bool AVRProgrammer::writeFuseBytes(const byte lowFuse, const byte highFuse, const byte extendedFuse, const byte lockFuse) {
   PD(Serial.println("Writing fuses..."));
 
+  byte checkLowFuse;
+  byte checkHighFuse;
+  byte checkExtendedFuse;
+  byte checkLockFuse;
+
   writeFuse(lowFuse, writeLowFuseByte);
-  if (program(readLowFuseByte, readLowFuseByteArg2) != lowFuse) {
+  checkLowFuse = program(readLowFuseByte, readLowFuseByteArg2);
+  if (checkLowFuse != lowFuse) {
     PD(Serial.print("Low fuse failed to write. Expected "));
     PD(AVRProgrammer::showHex(lowFuse, false, true));
     PD(Serial.print("Got "));
-    PD(AVRProgrammer::showHex(program(readLowFuseByte, readLowFuseByteArg2)));
+    PD(AVRProgrammer::showHex(checkLowFuse));
     PD(Serial.println());
     return false;
   }
   else {
     PD(Serial.print("Successfully wrote low fuse: "));
-    PD(AVRProgrammer::showHex(program(readLowFuseByte, readLowFuseByteArg2)));
+    PD(AVRProgrammer::showHex(checkLowFuse));
     PD(Serial.println());
   }
 
   writeFuse(highFuse, writeHighFuseByte);
-  if (program(readHighFuseByte, readHighFuseByteArg2) != highFuse) {
+  checkHighFuse = program(readHighFuseByte, readHighFuseByteArg2);
+  if (checkHighFuse != highFuse) {
     PD(Serial.print("High fuse failed to write. Expected "));
     PD(AVRProgrammer::showHex(highFuse, false, true));
     PD(Serial.print("Got "));
-    PD(AVRProgrammer::showHex(program(readHighFuseByte, readHighFuseByteArg2)));
+    PD(AVRProgrammer::showHex(checkHighFuse));
     PD(Serial.println());
     return false;
   }
   else {
     PD(Serial.print("Successfully wrote high fuse: "));
-    PD(AVRProgrammer::showHex(program(readHighFuseByte, readHighFuseByteArg2)));
+    PD(AVRProgrammer::showHex(checkHighFuse));
     PD(Serial.println());
   }
 
   writeFuse(extendedFuse, writeExtendedFuseByte);
-  if (program(readExtendedFuseByte, readExtendedFuseByteArg2) != extendedFuse) {
+  checkExtendedFuse = program(readExtendedFuseByte, readExtendedFuseByteArg2);
+  if (checkExtendedFuse != extendedFuse) {
     PD(Serial.print("Extended fuse failed to write. Expected "));
     PD(AVRProgrammer::showHex(extendedFuse, false, true));
     PD(Serial.print("Got "));
-    PD(AVRProgrammer::showHex(program(readExtendedFuseByte, readExtendedFuseByteArg2)));
+    PD(AVRProgrammer::showHex(checkExtendedFuse));
     PD(Serial.println());
     return false;
   }
   else {
     PD(Serial.print("Successfully wrote extended fuse: "));
-    PD(AVRProgrammer::showHex(program(readExtendedFuseByte, readExtendedFuseByteArg2)));
+    PD(AVRProgrammer::showHex(checkExtendedFuse));
     PD(Serial.println());
   }
 
   writeFuse(lockFuse, writeLockByte);
-  if (program(readLockByte, readLockByteArg2) != lockFuse) {
+  checkLockFuse = program(readLockByte, readLockByteArg2);
+  if (checkLockFuse != lockFuse) {
     PD(Serial.print("Lock fuse failed to write. Expected "));
     PD(AVRProgrammer::showHex(lockFuse, false, true));
     PD(Serial.print("Got "));
-    PD(AVRProgrammer::showHex(program(readLockByte, readLockByteArg2)));
+    PD(AVRProgrammer::showHex(checkLockFuse));
     PD(Serial.println());
     return false;
   }
   else {
     PD(Serial.print("Successfully wrote lock fuse: "));
-    PD(AVRProgrammer::showHex(program(readLockByte, readLockByteArg2)));
+    PD(AVRProgrammer::showHex(checkLockFuse));
     PD(Serial.println());
   }
 
@@ -311,18 +317,18 @@ bool AVRProgrammer::writeProgram(unsigned long loaderStart, const byte *image, c
   for (i = 0; i < len; i++) {
     byte found = readFlash(addr + i);
     byte expected = pgm_read_byte(flash + i);
-//    Serial.print("Found at 0x");
-//    Serial.print(i, HEX);
-//    Serial.print(": ");
-//    Serial.println(readFlash(addr + i), HEX);
-//    Serial.print("Expected at 0x");
-//    Serial.print(i, HEX);
-//    Serial.print(": ");
-//    Serial.println(pgm_read_byte(flash + i), HEX);
+    //    Serial.print("Found at 0x");
+    //    Serial.print(i, HEX);
+    //    Serial.print(": ");
+    //    Serial.println(readFlash(addr + i), HEX);
+    //    Serial.print("Expected at 0x");
+    //    Serial.print(i, HEX);
+    //    Serial.print(": ");
+    //    Serial.println(pgm_read_byte(flash + i), HEX);
     if (found != expected) {
       if (errors <= 100) {
         PD(Serial.print("Verification error at address ");
-        PD(AVRProgrammer::showHex(addr + i, false, true)));
+           PD(AVRProgrammer::showHex(addr + i, false, true)));
         PD(Serial.print(": Got: "));
         PD(AVRProgrammer::showHex(found));
         PD(Serial.print(" Expected: "));
@@ -382,7 +388,7 @@ bool AVRProgrammer::writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass
   PD(Serial.println("Writing program..."));
 
   // load each word
-  for (i=0; i<len; i+=2, bufCtr+=2) {
+  for (i = 0; i < len; i += 2, bufCtr += 2) {
 
     unsigned long thisPage = (addr + i) & pagemask;
     // page changed? commit old one
@@ -419,7 +425,7 @@ bool AVRProgrammer::writeProgramFromSerialFlash(uint32_t loaderStart, FlashClass
   PD(Serial.println("Written."));
 
   // check each byte
-  for (i=0; i<len; i++, bufCtr++) {
+  for (i = 0; i < len; i++, bufCtr++) {
     if (i % bufLen == 0) {
       PD(Serial.print("Verifying flash at address: 0x"));
       PD(Serial.println(loaderStart + i, HEX));
@@ -496,7 +502,7 @@ void AVRProgrammer::writeEeprom(unsigned long addr, byte value) {
 void AVRProgrammer::eraseChip() {
   PD(Serial.println("Erasing chip..."));
   program(programEnable, chipErase);
-  delay(20);  // for Atmega8
+  delay(20);  // for Attiny13a
   pollUntilReady();
 }
 
@@ -564,7 +570,7 @@ void AVRProgrammer::showYesNo(const boolean b, const boolean newline) {
 // poll the target device until it is ready to be programmed
 void AVRProgrammer::pollUntilReady() {
   if (signatures[foundSig].timedWrites) {
-    delay (10);  // at least 2 x WD_FLASH which is 4.5 mS
+    delay(10);  // at least 2 x WD_FLASH which is 4.5 mS
   }
   else {
     while ((program(pollReady) & 1) == 1) {
@@ -615,7 +621,8 @@ void AVRProgrammer::showHex(const byte b, const boolean newline, const boolean s
   }
   // try to avoid using sprintf
   char buf[4] = {
-    ((b >> 4) & 0x0F) | '0', (b & 0x0F) | '0', spaceAfter ? ' ' : 0, 0     };
+    ((b >> 4) & 0x0F) | '0', (b & 0x0F) | '0', spaceAfter ? ' ' : 0, 0
+  };
   if (buf[0] > '9') {
     buf[0] += 7;
   }
@@ -627,6 +634,3 @@ void AVRProgrammer::showHex(const byte b, const boolean newline, const boolean s
     Serial.println();
   }
 }
-
-
-
