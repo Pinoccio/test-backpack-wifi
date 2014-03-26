@@ -55,7 +55,7 @@
 #include <avr/pgmspace.h>
 #include "programmer.h"
 
-#define AVR_PROGRAMMER_DEBUG
+//#define AVR_PROGRAMMER_DEBUG
 #ifdef AVR_PROGRAMMER_DEBUG
 #  define PD(x) x
 #else

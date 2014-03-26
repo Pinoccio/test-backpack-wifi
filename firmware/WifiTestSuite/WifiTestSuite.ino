@@ -172,11 +172,11 @@ void startTest() {
   writeWifiMACAddress();
   putWifiInRunMode();
 */  
-  //putWifiInRunMode();
-  //testWifi();
-  //putWifiInProgramMode();
+  putWifiInRunMode();
+  testWifi();
+  putWifiInProgramMode();
  
-  //testSerialFlash();
+  testSerialFlash();
   
   flashBackpackBus();
   testBackpackBus();
@@ -206,7 +206,7 @@ void testWifi() {
   resetSPIChipSelectPins();
   digitalWrite(VCC_ENABLE, HIGH);
   
-  SPI.setClockDivider(SPI_CLOCK_DIV8);
+  SPI.setClockDivider(SPI_CLOCK_DIV16);
   SPI.begin();
   gs.begin(WIFI_CS);
 
@@ -324,7 +324,7 @@ void flashBackpackBus() {
   digitalWrite(VCC_ENABLE, HIGH);
   delay(250);
   
-  AVRProgrammer pgm = AVRProgrammer(TINY_13_RESET, SPI, SPI_CLOCK_DIV32);
+  AVRProgrammer pgm = AVRProgrammer(TINY_13_RESET, SPI, SPI_CLOCK_DIV128);
   pgm.begin();
   
   pgm.startProgramming();
