@@ -98,8 +98,8 @@ AVRProgrammer::AVRProgrammer(int CS, SPIClass &SPIDriver, int clockDivider) :
 }
 
 void AVRProgrammer::begin() {
-  this->SPI.setClockDivider(spiSpeed);
   this->SPI.begin();
+  this->SPI.setClockDivider(spiSpeed);
   pinMode(chipSelectPin, OUTPUT);
   digitalWrite(chipSelectPin, LOW);
 }

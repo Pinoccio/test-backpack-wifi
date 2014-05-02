@@ -1,4 +1,4 @@
-#include <serialGLCDlib.h>
+
 #include <SPI.h>
 #include <Wire.h>
 #include <Scout.h>
@@ -7,7 +7,7 @@
 #include <lwm.h>
 #include <js0n.h>
 
-serialGLCD lcd;
+
 #define TINY_13_RESET 3
 #define GS_FLASH_CS 4
 #define DRIVER_FLASH_CS 5
@@ -16,9 +16,12 @@ serialGLCD lcd;
 #define MICRO_SD_CS 8
 #define BP_FLASH_CS SS
 
+#define DEBOUNCE_TIMEOUT 1000
+
 const int buttonPin = A3;
 bool testIsRunning = false;
 bool isInProgrammingMode = false;
+uint32_t debounceTime;
   
 void setup() {
   Serial.begin(115200);
@@ -27,12 +30,15 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(VCC_ENABLE, OUTPUT);
   pinMode(WIFI_PROGRAM_SELECT, OUTPUT);
+  debounceTime = millis();
   
   putWifiInProgramMode();
 }
 
 void loop() {
-  if (digitalRead(buttonPin) == LOW) { 
+  if (digitalRead(buttonPin) == LOW && (millis() - debounceTime > DEBOUNCE_TIMEOUT)) {
+  //if (digitalRead(buttonPin) == LOW) {
+    debounceTime = millis();
     if (isInProgrammingMode == true) {
       putWifiInRunMode();
     } else {
@@ -59,13 +65,13 @@ void putWifiInProgramMode() {
   //Serial.println("- Putting Gainspan into program mode");
   RgbLed.turnOff();
   isInProgrammingMode = true;  
+  digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
   
   digitalWrite(VCC_ENABLE, LOW);
   delay(500);
 
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(1000);
-  digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
+  delay(500);
   
   while(Serial1.read() != -1);
   RgbLed.purple();  
@@ -76,12 +82,12 @@ void putWifiInRunMode() {
   RgbLed.turnOff();
   isInProgrammingMode = false;
   
+  digitalWrite(WIFI_PROGRAM_SELECT, LOW);
   digitalWrite(VCC_ENABLE, LOW);
   delay(500);
   
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(1000);
-  digitalWrite(WIFI_PROGRAM_SELECT, LOW);
+  delay(500);
   
   while(Serial1.read() != -1);
   RgbLed.red();

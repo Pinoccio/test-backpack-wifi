@@ -322,7 +322,7 @@ void flashBackpackBus() {
   
   resetSPIChipSelectPins();
   digitalWrite(VCC_ENABLE, HIGH);
-  delay(250);
+  delay(500);
   
   AVRProgrammer pgm = AVRProgrammer(TINY_13_RESET, SPI, SPI_CLOCK_DIV128);
   pgm.begin();
