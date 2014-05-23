@@ -22,7 +22,7 @@ const int buttonPin = A3;
 bool testIsRunning = false;
 bool isInProgrammingMode = false;
 uint32_t debounceTime;
-  
+
 void setup() {
   Serial.begin(115200);
   Serial1.begin(115200);
@@ -31,7 +31,7 @@ void setup() {
   pinMode(VCC_ENABLE, OUTPUT);
   pinMode(WIFI_PROGRAM_SELECT, OUTPUT);
   debounceTime = millis();
-  
+
   putWifiInProgramMode();
 }
 
@@ -45,7 +45,7 @@ void loop() {
       putWifiInProgramMode();
     }
   }
-  
+
   if (Serial1.available() > 0) {
     Serial.write(Serial1.read());
   }
@@ -54,7 +54,7 @@ void loop() {
   if (Serial.available() > 0) {
     Serial1.write(Serial.read());
   }
- 
+
 //  lcd.clearLCD();
 //  delay(10);
 //  Serial.println("test");
@@ -63,34 +63,34 @@ void loop() {
 
 void putWifiInProgramMode() {
   //Serial.println("- Putting Gainspan into program mode");
-  RgbLed.turnOff();
-  isInProgrammingMode = true;  
+  Led.turnOff();
+  isInProgrammingMode = true;
   digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
-  
+
   digitalWrite(VCC_ENABLE, LOW);
   delay(500);
 
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
-  
+
   while(Serial1.read() != -1);
-  RgbLed.purple();  
+  Led.purple();
 }
 
 void putWifiInRunMode() {
   //Serial.println("- Putting Gainspan into run mode");
-  RgbLed.turnOff();
+  Led.turnOff();
   isInProgrammingMode = false;
-  
+
   digitalWrite(WIFI_PROGRAM_SELECT, LOW);
   digitalWrite(VCC_ENABLE, LOW);
   delay(500);
-  
+
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
-  
+
   while(Serial1.read() != -1);
-  RgbLed.red();
+  Led.red();
 }
 
 void resetSPIChipSelectPins() {
