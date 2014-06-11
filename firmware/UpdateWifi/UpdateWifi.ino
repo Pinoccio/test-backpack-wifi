@@ -68,7 +68,7 @@ void putWifiInProgramMode() {
   digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
 
   digitalWrite(VCC_ENABLE, LOW);
-  delay(500);
+  delay(1000);
 
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
@@ -84,7 +84,7 @@ void putWifiInRunMode() {
 
   digitalWrite(WIFI_PROGRAM_SELECT, LOW);
   digitalWrite(VCC_ENABLE, LOW);
-  delay(500);
+  delay(1000);
 
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
