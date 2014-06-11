@@ -60,13 +60,14 @@ const uint32_t WIFI_EXTERNAL_FLASH_IMG_ADDR = 0x100000;
 
 // set to true to save initial HW_SERIAL_INIT to jig
 const bool RESET_HW_SERIAL = false;
-
 // jig one
 //const uint32_t HW_SERIAL_INIT = 0x100000;    // 1048576
 // jig two
-//const uint32_t HW_SERIAL_INIT = 0x200000;    // 2097152
+const uint32_t HW_SERIAL_INIT = 0x200166;    // 2097152
 // jig three
-const uint32_t HW_SERIAL_INIT = 0x300000;    // 3145728
+//const uint32_t HW_SERIAL_INIT = 0x3002E3;    // 3145728
+// jig 4
+//const uint32_t HW_SERIAL_INIT = 0x400000;    // 3145728
 
 uint32_t hwSerial;
 
@@ -74,7 +75,7 @@ void setup() {
   Serial.begin(115200);
   testJigSetup();
   
-  RgbLed.cyan();
+  Led.cyan();
 }
 
 void loop() {
@@ -151,7 +152,7 @@ void getSettingsFromFlash() {
 }
 
 void startTest() {
-  RgbLed.turnOff();
+  Led.turnOff();
   if (testIsRunning == true) {
     Serial.println("Test is already running");
     return;
@@ -184,7 +185,7 @@ void startTest() {
   testIsRunning = false;
   
   if (testFailed == false) {
-    RgbLed.green();
+    Led.green();
     Serial.println("TEST SUCCESSFUL");
     Serial.println();
     // delay a bit to let serial output complete before restarting
@@ -194,7 +195,7 @@ void startTest() {
     wdt_enable(WDTO_15MS);
     while(1);
   } else {
-    RgbLed.red();
+    Led.red();
     Serial.println("*** TEST FAILED ***");
   }
   Serial.println();
