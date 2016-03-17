@@ -1,14 +1,14 @@
 
 #include <SPI.h>
-#include <Wire.h>
-#include <Scout.h>
-#include <GS.h>
-#include <bitlash.h>
-#include <lwm.h>
-#include <js0n.h>
+//#include <Wire.h>
+//#include <Scout.h>
+//#include <GS.h>
+//#include <bitlash.h>
+//#include <lwm.h>
+//#include <js0n.h>
 
 
-#define TINY_13_RESET 3
+#define TINY_13_CS 3
 #define GS_FLASH_CS 4
 #define DRIVER_FLASH_CS 5
 #define WIFI_PROGRAM_SELECT 6
@@ -16,7 +16,7 @@
 #define MICRO_SD_CS 8
 #define BP_FLASH_CS SS
 
-#define DEBOUNCE_TIMEOUT 1000
+#define DEBOUNCE_TIMEOUT 500
 
 const int buttonPin = A3;
 bool testIsRunning = false;
@@ -28,8 +28,15 @@ void setup() {
   Serial1.begin(115200);
   resetSPIChipSelectPins();
   pinMode(buttonPin, INPUT_PULLUP);
-  pinMode(VCC_ENABLE, OUTPUT);
   pinMode(WIFI_PROGRAM_SELECT, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+  ledOff();
+  
+  pinMode(VCC_ENABLE, OUTPUT);
+  digitalWrite(VCC_ENABLE, HIGH);
+  
   debounceTime = millis();
 
   putWifiInProgramMode();
@@ -46,12 +53,12 @@ void loop() {
     }
   }
 
-  if (Serial1.available() > 0) {
+  if (Serial1.available()) {
     Serial.write(Serial1.read());
   }
 
   // read from port 0, send to port 1:
-  if (Serial.available() > 0) {
+  if (Serial.available()) {
     Serial1.write(Serial.read());
   }
 
@@ -63,39 +70,45 @@ void loop() {
 
 void putWifiInProgramMode() {
   //Serial.println("- Putting Gainspan into program mode");
-  Led.turnOff();
+  ledOff();
+  resetSPIChipSelectPins();
   isInProgrammingMode = true;
-  digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
 
   digitalWrite(VCC_ENABLE, LOW);
   delay(1000);
+  
+  digitalWrite(WIFI_PROGRAM_SELECT, HIGH);
 
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
 
   while(Serial1.read() != -1);
-  Led.purple();
+  setLedPurple();
 }
 
 void putWifiInRunMode() {
   //Serial.println("- Putting Gainspan into run mode");
-  Led.turnOff();
+  ledOff();
+  resetSPIChipSelectPins();
   isInProgrammingMode = false;
 
-  digitalWrite(WIFI_PROGRAM_SELECT, LOW);
   digitalWrite(VCC_ENABLE, LOW);
   delay(1000);
 
+  digitalWrite(WIFI_PROGRAM_SELECT, LOW);
+ 
   digitalWrite(VCC_ENABLE, HIGH);
   delay(500);
 
   while(Serial1.read() != -1);
-  Led.red();
+  setLedRed();
 }
 
 void resetSPIChipSelectPins() {
-  pinMode(TINY_13_RESET, OUTPUT);
-  digitalWrite(TINY_13_RESET, HIGH);
+  /*
+  SPI.end();
+  pinMode(TINY_13_CS, OUTPUT);
+  digitalWrite(TINY_13_CS, HIGH);
   pinMode(GS_FLASH_CS, OUTPUT);
   digitalWrite(GS_FLASH_CS, HIGH);
   pinMode(DRIVER_FLASH_CS, OUTPUT);
@@ -106,5 +119,37 @@ void resetSPIChipSelectPins() {
   digitalWrite(MICRO_SD_CS, HIGH);
   pinMode(BP_FLASH_CS, OUTPUT);
   digitalWrite(BP_FLASH_CS, HIGH);
-  delay(1);
+  SPI.end();
+  */ 
+  SPI.end();
+  pinMode(MOSI, INPUT);
+  pinMode(MISO, INPUT);
+  pinMode(SCK, INPUT);
+  pinMode(TINY_13_CS, INPUT);
+  pinMode(TINY_13_CS, INPUT);
+  pinMode(GS_FLASH_CS, INPUT);
+  pinMode(DRIVER_FLASH_CS, INPUT);
+  pinMode(WIFI_CS, INPUT);
+  pinMode(MICRO_SD_CS, INPUT);
+  pinMode(BP_FLASH_CS, INPUT);
+
+  delay(10);
 }
+
+void ledOff(void) {
+  digitalWrite(LED_RED, 255);
+  digitalWrite(LED_GREEN, 255);
+  digitalWrite(LED_BLUE, 255);
+}
+
+void setLedRed(void) {
+  ledOff();
+  digitalWrite(LED_RED, 0);
+}
+
+void setLedPurple() {
+  ledOff();
+  digitalWrite(LED_RED, 0);
+  digitalWrite(LED_BLUE, 0);
+}
+
